@@ -7,6 +7,8 @@ class ContainerizationWrapper: ObservableObject {
     @Published var containers: [Container] = []
     @Published var updatingContainerIDs: Set<String> = []
     @Published var missingDependencies: [DependencyError] = []
+    @Published var images: [ContainerImage] = []
+    @Published var updatingImageIDs: Set<String> = []
     @Published var lastErrorMessage: String?
     private let logger = Logger(label: "iContainer")
     private var timer: Timer?
@@ -28,9 +30,15 @@ class ContainerizationWrapper: ObservableObject {
     func startPolling() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { await self?.refreshContainers() }
+            Task {
+                await self?.refreshContainers()
+                await self?.refreshImages()
+            }
         }
-        Task { await refreshContainers() }
+        Task {
+            await refreshContainers()
+            await refreshImages()
+        }
     }
 
     deinit {
@@ -118,6 +126,61 @@ class ContainerizationWrapper: ObservableObject {
         }
     }
 
+    // MARK: - Image Management
+    func refreshImages() async {
+        do {
+            let output = try await runCommand(["image", "list", "--format", "json"])
+            let parsed = parseImageList(output)
+            if self.images != parsed {
+                self.images = parsed
+            }
+        } catch {
+            logger.error("Errore nel refresh delle immagini: \(error)")
+        }
+    }
+
+    func pullImage(reference: String) async {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updatingImageIDs.insert(trimmed)
+        defer { updatingImageIDs.remove(trimmed) }
+        do {
+            _ = try await runCommand(["image", "pull", trimmed])
+            await refreshImages()
+        } catch {
+            logger.error("Errore nel pull dell'immagine: \(error)")
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteImage(reference: String) async {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updatingImageIDs.insert(trimmed)
+        defer { updatingImageIDs.remove(trimmed) }
+        lastErrorMessage = nil
+        do {
+            _ = try await runCommand(["image", "delete", trimmed])
+            await refreshImages()
+        } catch {
+            logger.error("Errore nell'eliminazione dell'immagine: \(error)")
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    func inspectImage(reference: String) async -> String? {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            let output = try await runCommand(["image", "inspect", trimmed])
+            return output
+        } catch {
+            logger.error("Errore nell'ispezione dell'immagine: \(error)")
+            lastErrorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func startContainer(containerId: String) async {
         updatingContainerIDs.insert(containerId)
         do {
@@ -145,21 +208,25 @@ class ContainerizationWrapper: ObservableObject {
             lastErrorMessage = "Cannot delete: container id is empty."
             return
         }
+        updatingContainerIDs.insert(containerId)
+        defer { updatingContainerIDs.remove(containerId) }
+        lastErrorMessage = nil
         do {
             _ = try await runCommand(["delete", containerId])
             await refreshContainers()
+            return
         } catch {
             logger.error("Errore nell'eliminazione del container: \(error)")
-            lastErrorMessage = error.localizedDescription
             do {
                 _ = try await runCommand(["delete", "--force", containerId])
                 await refreshContainers()
+                return
             } catch {
                 logger.error("Errore nell'eliminazione forzata del container: \(error)")
-                lastErrorMessage = error.localizedDescription
                 do {
                     _ = try await runCommand(["rm", containerId])
                     await refreshContainers()
+                    return
                 } catch {
                     logger.error("Errore nell'eliminazione con rm: \(error)")
                     lastErrorMessage = error.localizedDescription
@@ -187,6 +254,75 @@ class ContainerizationWrapper: ObservableObject {
             }
         } catch {
             logger.error("Errore nell'ispezione del container: \(error)")
+        }
+        return nil
+    }
+}
+
+private extension ContainerizationWrapper {
+    func parseImageList(_ output: String) -> [ContainerImage] {
+        guard let data = output.data(using: .utf8) else { return [] }
+        do {
+            let json = try JSONSerialization.jsonObject(with: data, options: [])
+            guard let array = json as? [[String: Any]] else { return [] }
+            return array.compactMap { mapImage($0) }
+        } catch {
+            logger.error("Errore nel parsing immagini: \(error)")
+            return []
+        }
+    }
+
+    func mapImage(_ dict: [String: Any]) -> ContainerImage? {
+        let reference = stringValue(dict, keys: ["reference", "ref"]) ?? ""
+        let (name, tag) = splitReference(reference)
+        let descriptor = dict["descriptor"] as? [String: Any]
+        let digest = descriptor?["digest"] as? String
+        let sizeBytes = intValue(descriptor ?? [:], keys: ["size"])
+        let sizeText = stringValue(dict, keys: ["fullSize", "full_size"])
+        let annotations = descriptor?["annotations"] as? [String: Any]
+        let createdAt = stringValue(annotations ?? [:], keys: ["org.opencontainers.image.created"])
+        let resolvedId = digest ?? reference
+        guard !resolvedId.isEmpty else { return nil }
+        return ContainerImage(
+            id: resolvedId,
+            name: name.isEmpty ? reference : name,
+            tag: tag,
+            sizeBytes: sizeBytes,
+            sizeText: sizeText,
+            createdAt: createdAt
+        )
+    }
+
+    func splitReference(_ reference: String) -> (name: String, tag: String?) {
+        guard !reference.isEmpty else { return ("", nil) }
+        let parts = reference.split(separator: ":")
+        if parts.count >= 2, let last = parts.last {
+            let name = parts.dropLast().joined(separator: ":")
+            return (name, String(last))
+        }
+        return (reference, nil)
+    }
+
+    func stringValue(_ dict: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = dict[key] as? String {
+                return value
+            }
+            if let value = dict[key] as? NSNumber {
+                return value.stringValue
+            }
+        }
+        return nil
+    }
+
+    func intValue(_ dict: [String: Any], keys: [String]) -> Int64? {
+        for key in keys {
+            if let value = dict[key] as? NSNumber {
+                return value.int64Value
+            }
+            if let value = dict[key] as? String, let parsed = Int64(value) {
+                return parsed
+            }
         }
         return nil
     }

@@ -5,6 +5,11 @@ struct ContentView: View {
     @EnvironmentObject var serviceManager: ServiceManager
     @State private var showingAddContainerAlert = false
     @State private var newContainerName = ""
+    @State private var isContainersExpanded = true
+    @State private var isImagesExpanded = true
+    @State private var showingPullImageAlert = false
+    @State private var pullImageReference = ""
+    @State private var isPullingImage = false
 
     var body: some View {
         if !containerManager.missingDependencies.isEmpty {
@@ -17,9 +22,35 @@ struct ContentView: View {
                         ServiceStatusView()
                     }
                 }
-                Section(header: Text("Containers")) {
-                    ForEach(containerManager.containers) { container in
-                        ContainerRowView(container: container)
+                Section {
+                    DisclosureGroup("Containers", isExpanded: $isContainersExpanded) {
+                        ForEach(containerManager.containers) { container in
+                            ContainerRowView(container: container)
+                        }
+                    }
+                }
+                Section {
+                    DisclosureGroup(isExpanded: $isImagesExpanded) {
+                        ForEach(containerManager.images) { image in
+                            ImageRowView(image: image)
+                        }
+                    } label: {
+                        HStack {
+                            Text("Images")
+                            Spacer()
+                            Button {
+                                showingPullImageAlert = true
+                            } label: {
+                                if isPullingImage {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "square.and.arrow.down")
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(isPullingImage)
+                        }
                     }
                 }
             }
@@ -50,6 +81,28 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) {
                 newContainerName = ""
             }
+        }
+        .alert("Pull Image", isPresented: $showingPullImageAlert) {
+            TextField("repository:tag", text: $pullImageReference)
+            Button("Pull") {
+                let reference = pullImageReference.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !reference.isEmpty {
+                    isPullingImage = true
+                    Task {
+                        await containerManager.pullImage(reference: reference)
+                        pullImageReference = ""
+                        isPullingImage = false
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pullImageReference = ""
+            }
+        } message: {
+            Text("Enter the image reference to pull from the registry.")
+        }
+        .task {
+            await containerManager.refreshImages()
         }
         }
     }
@@ -135,6 +188,7 @@ struct ContainerRowView: View {
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var showingDeleteConfirmation = false
     @State private var showingStopConfirmation = false
+    @State private var isDeleting = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -172,7 +226,7 @@ struct ContainerRowView: View {
             .buttonStyle(.plain)
             HStack(spacing: 12) {
                 ZStack {
-                    if containerManager.updatingContainerIDs.contains(container.id) {
+                    if isDeleting || containerManager.updatingContainerIDs.contains(container.id) {
                         ProgressView()
                             .scaleEffect(0.7)
                             .frame(width: 16, height: 16)
@@ -209,26 +263,32 @@ struct ContainerRowView: View {
                 Button(role: .destructive) {
                     showingDeleteConfirmation = true
                 } label: {
-                    Image(systemName: "trash")
-                        .frame(width: 16, height: 16)
+                    if isDeleting || containerManager.updatingContainerIDs.contains(container.id) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        Image(systemName: "trash")
+                            .frame(width: 16, height: 16)
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(containerManager.updatingContainerIDs.contains(container.id))
+                .disabled(isDeleting || containerManager.updatingContainerIDs.contains(container.id))
             }
         }
         .padding(.vertical, 4)
-        .alert(isPresented: $showingDeleteConfirmation) {
-            Alert(
-                title: Text("Delete Container?"),
-                message: Text("Are you sure you want to delete the container \"\(container.name)\"? This action cannot be undone."),
-                primaryButton: .destructive(Text("Delete")) {
-                    Task {
-                        await containerManager.deleteContainer(containerId: container.id)
-                    }
-                },
-                secondaryButton: .cancel()
-            )
+        .confirmationDialog("Delete Container?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                isDeleting = true
+                Task {
+                    await containerManager.deleteContainer(containerId: container.id)
+                    isDeleting = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete the container \"\(container.name)\"? This action cannot be undone.")
         }
         .alert(isPresented: $showingStopConfirmation) {
             Alert(
