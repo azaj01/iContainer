@@ -1,6 +1,6 @@
 import Foundation
 
-struct Container: Identifiable {
+struct Container: Identifiable, Equatable {
     let id: String
     let name: String
     var status: ContainerStatus
@@ -8,7 +8,7 @@ struct Container: Identifiable {
     let ipAddress: String?
 }
 
-enum ContainerStatus {
+enum ContainerStatus: Equatable {
     case running
     case stopped
 } 

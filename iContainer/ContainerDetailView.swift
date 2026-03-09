@@ -89,13 +89,49 @@ struct ContainerDetailView: View {
             }
         }
         .navigationTitle(details?.name ?? "Details")
-        .onAppear {
-            Task {
-                if details == nil {
-                    details = await containerManager.inspectContainer(containerId: containerId)
-                    isLoading = false
-                }
-            }
+        .task(id: containerId) {
+            await loadDetails()
+        }
+        .onChange(of: containerManager.containers) { _, _ in
+            updateDetailsFromList()
+        }
+    }
+
+    private func loadDetails() async {
+        if details == nil {
+            details = await containerManager.inspectContainer(containerId: containerId)
+            isLoading = false
+        }
+        updateDetailsFromList()
+    }
+
+    private func updateDetailsFromList() {
+        guard let current = details,
+              let match = containerManager.containers.first(where: { $0.id == containerId }) else {
+            return
+        }
+        let statusText = match.status == .running ? "running" : "stopped"
+        let updatedNetworks: [ContainerDetails.NetworkInfo]? = match.ipAddress != nil
+            ? [ContainerDetails.NetworkInfo(address: match.ipAddress)]
+            : current.networks
+        let updatedImage: ContainerDetails.ImageInfo? = match.image != nil
+            ? ContainerDetails.ImageInfo(reference: match.image)
+            : current.configuration?.image
+        let updatedConfiguration = ContainerDetails.ConfigurationData(
+            id: current.configuration?.id,
+            hostname: current.configuration?.hostname,
+            image: updatedImage,
+            mounts: current.configuration?.mounts,
+            initProcess: current.configuration?.initProcess,
+            publishedSockets: current.configuration?.publishedSockets
+        )
+        let updated = ContainerDetails(
+            status: statusText,
+            networks: updatedNetworks,
+            configuration: updatedConfiguration
+        )
+        if updated != current {
+            details = updated
         }
     }
 }

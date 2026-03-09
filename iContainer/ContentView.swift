@@ -30,6 +30,13 @@ struct ContentView: View {
             .listStyle(.sidebar)
             .navigationTitle("iContainer")
             .toolbar { addToolbar }
+            .alert("Operation Failed", isPresented: errorAlertBinding) {
+                Button("OK", role: .cancel) {
+                    containerManager.lastErrorMessage = nil
+                }
+            } message: {
+                Text(containerManager.lastErrorMessage ?? "Unknown error")
+            }
             
             // Placeholder view for when no container is selected
             Text("Select a container to see its details.")
@@ -50,6 +57,17 @@ struct ContentView: View {
         }
         }
     }
+
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { containerManager.lastErrorMessage != nil },
+            set: { newValue in
+                if !newValue {
+                    containerManager.lastErrorMessage = nil
+                }
+            }
+        )
+    }
     
     private var addToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -69,8 +87,14 @@ struct ServiceStatusView: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle()
+                .fill(serviceManager.isServiceRunning ? Color.green : Color.red)
+                .brightness(serviceManager.isServiceRunning ? 0.15 : 0.05)
                 .frame(width: 14, height: 14)
-                .foregroundColor(serviceManager.isServiceRunning ? .green : .red)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Service Status")
                     .font(.headline)
@@ -94,13 +118,16 @@ struct ServiceStatusView: View {
                 if isProcessing {
                     ProgressView()
                         .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
                 } else {
                     Image(systemName: serviceManager.isServiceRunning ? "stop.fill" : "play.fill")
                         .foregroundColor(serviceManager.isServiceRunning ? .red : .green)
-                        .frame(width: 20, height: 20)
+                        .brightness(serviceManager.isServiceRunning ? 0.05 : 0.15)
+                        .frame(width: 16, height: 16)
                 }
             }
-            .buttonStyle(.plain) // Use plain style to avoid conflict with NavigationLink
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(isProcessing)
         }
         .padding(.vertical, 4)
@@ -114,19 +141,39 @@ struct ContainerRowView: View {
     @State private var showingStopConfirmation = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Circle()
-                    .frame(width: 10, height: 10)
-                    .foregroundColor(container.status == .running ? .green : .red)
-                Text(container.name)
-                    .font(.headline)
-                Spacer()
-
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Circle()
+                        .fill(container.status == .running ? Color.green : Color.red)
+                        .brightness(container.status == .running ? 0.15 : 0.05)
+                        .frame(width: 10, height: 10)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
+                    Text(container.name)
+                        .font(.headline)
+                }
+                HStack(spacing: 16) {
+                    if let image = container.image {
+                        Label(image, systemImage: "shippingbox")
+                            .font(.caption)
+                    }
+                    if let ip = container.ipAddress {
+                        Label(ip, systemImage: "network")
+                            .font(.caption)
+                    }
+                }
+            }
+            Spacer()
+            HStack(spacing: 12) {
                 ZStack {
                     if containerManager.updatingContainerIDs.contains(container.id) {
                         ProgressView()
                             .scaleEffect(0.7)
+                            .frame(width: 16, height: 16)
                     } else {
                         if container.status == .stopped {
                             Button {
@@ -136,14 +183,22 @@ struct ContainerRowView: View {
                             } label: {
                                 Image(systemName: "play.fill")
                                     .foregroundColor(.green)
+                                    .brightness(0.15)
+                                    .frame(width: 16, height: 16)
                             }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         } else {
                             Button {
                                 showingStopConfirmation = true
                             } label: {
                                 Image(systemName: "stop.fill")
                                     .foregroundColor(.red)
+                                    .brightness(0.05)
+                                    .frame(width: 16, height: 16)
                             }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                 }
@@ -153,19 +208,11 @@ struct ContainerRowView: View {
                     showingDeleteConfirmation = true
                 } label: {
                     Image(systemName: "trash")
+                        .frame(width: 16, height: 16)
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(containerManager.updatingContainerIDs.contains(container.id))
-            }
-            HStack(spacing: 16) {
-                if let image = container.image {
-                    Label(image, systemImage: "shippingbox")
-                        .font(.caption)
-                }
-                if let ip = container.ipAddress {
-                    Label(ip, systemImage: "network")
-                        .font(.caption)
-                }
-
             }
         }
         .padding(.vertical, 4)

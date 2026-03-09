@@ -7,6 +7,7 @@ class ContainerizationWrapper: ObservableObject {
     @Published var containers: [Container] = []
     @Published var updatingContainerIDs: Set<String> = []
     @Published var missingDependencies: [DependencyError] = []
+    @Published var lastErrorMessage: String?
     private let logger = Logger(label: "iContainer")
     private var timer: Timer?
 
@@ -17,7 +18,7 @@ class ContainerizationWrapper: ObservableObject {
     
     func checkDependencies() {
         var errors: [DependencyError] = []
-        if !FileManager.default.fileExists(atPath: "/usr/local/bin/container") {
+        if Self.resolveCLIPath() == nil {
             errors.append(.cliMissing)
         }
         self.missingDependencies = errors
@@ -38,8 +39,22 @@ class ContainerizationWrapper: ObservableObject {
     
     // MARK: - Terminal command runner
     private func runCommand(_ arguments: [String]) async throws -> String {
-        let cliPath = "/usr/local/bin/container"
-        guard FileManager.default.isExecutableFile(atPath: cliPath) else {
+        let result = try await Task.detached(priority: .utility) {
+            try Self.runCommandBlocking(arguments)
+        }.value
+        if result.status != 0 {
+            let commandText = "container " + arguments.joined(separator: " ")
+            let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let description = message.isEmpty
+                ? "Command failed (\(commandText)) with exit code \(result.status)."
+                : message
+            throw NSError(domain: "iContainer", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: description])
+        }
+        return result.output
+    }
+
+    nonisolated private static func runCommandBlocking(_ arguments: [String]) throws -> (output: String, status: Int32) {
+        guard let cliPath = resolveCLIPath() else {
             throw NSError(domain: "iContainer", code: 1, userInfo: [NSLocalizedDescriptionKey: "CLI 'container' non trovata"])
         }
         let process = Process()
@@ -54,14 +69,32 @@ class ContainerizationWrapper: ObservableObject {
         guard let output = String(data: data, encoding: .utf8) else {
             throw NSError(domain: "iContainer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Impossibile leggere output comando"])
         }
-        return output
+        return (output, process.terminationStatus)
+    }
+
+    nonisolated private static func resolveCLIPath() -> String? {
+        let candidates = [
+            "/usr/local/bin/container",
+            "/opt/homebrew/bin/container"
+        ]
+        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for entry in pathEnv.split(separator: ":") {
+                let path = String(entry) + "/container"
+                if FileManager.default.isExecutableFile(atPath: path) {
+                    return path
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Container Management
     func refreshContainers() async {
         do {
-            let output = try await runCommand(["list", "--format", "json"])
-            print("OUTPUT CLI:", output)
+            let output = try await runCommand(["list", "--all", "--format", "json"])
             if let data = output.data(using: .utf8) {
                 let decoded = try JSONDecoder().decode([ContainerCLI].self, from: data)
                 let newContainers = decoded.map { cli in
@@ -75,13 +108,12 @@ class ContainerizationWrapper: ObservableObject {
                 }
                 
                 // Update only if the containers list has changed
-                if self.containers.map({$0.id}) != newContainers.map({$0.id}) || self.containers.map({$0.status}) != newContainers.map({$0.status}) {
+                if self.containers != newContainers {
                     self.containers = newContainers
                 }
             }
         } catch {
             logger.error("Errore nel refresh dei container: \(error)")
-            print("ERRORE PARSING:", error)
             self.containers = []
         }
     }
@@ -109,11 +141,30 @@ class ContainerizationWrapper: ObservableObject {
     }
 
     func deleteContainer(containerId: String) async {
+        if containerId.isEmpty {
+            lastErrorMessage = "Cannot delete: container id is empty."
+            return
+        }
         do {
             _ = try await runCommand(["delete", containerId])
             await refreshContainers()
         } catch {
             logger.error("Errore nell'eliminazione del container: \(error)")
+            lastErrorMessage = error.localizedDescription
+            do {
+                _ = try await runCommand(["delete", "--force", containerId])
+                await refreshContainers()
+            } catch {
+                logger.error("Errore nell'eliminazione forzata del container: \(error)")
+                lastErrorMessage = error.localizedDescription
+                do {
+                    _ = try await runCommand(["rm", containerId])
+                    await refreshContainers()
+                } catch {
+                    logger.error("Errore nell'eliminazione con rm: \(error)")
+                    lastErrorMessage = error.localizedDescription
+                }
+            }
         }
     }
 
@@ -129,7 +180,6 @@ class ContainerizationWrapper: ObservableObject {
     func inspectContainer(containerId: String) async -> ContainerDetails? {
         do {
             let output = try await runCommand(["inspect", containerId])
-            print("JSON OUTPUT for \(containerId):", output) // Debug logging
             if let data = output.data(using: .utf8) {
                 // The command returns an array with a single element
                 let decoded = try JSONDecoder().decode([ContainerDetails].self, from: data)
@@ -137,7 +187,6 @@ class ContainerizationWrapper: ObservableObject {
             }
         } catch {
             logger.error("Errore nell'ispezione del container: \(error)")
-            print("DECODING ERROR:", error) // Debug logging
         }
         return nil
     }
@@ -180,16 +229,16 @@ struct ContainerCLI: Decodable {
     }
 }
 
-struct ContainerDetails: Decodable {
+struct ContainerDetails: Decodable, Equatable {
     let status: String?
     let networks: [NetworkInfo]?
     let configuration: ConfigurationData?
 
-    struct NetworkInfo: Decodable {
+    struct NetworkInfo: Decodable, Equatable {
         let address: String?
     }
 
-    struct ConfigurationData: Decodable {
+    struct ConfigurationData: Decodable, Equatable {
         let id: String?
         let hostname: String?
         let image: ImageInfo?
@@ -198,22 +247,22 @@ struct ContainerDetails: Decodable {
         let publishedSockets: [SocketInfo]?
     }
 
-    struct ImageInfo: Decodable {
+    struct ImageInfo: Decodable, Equatable {
         let reference: String?
     }
 
-    struct MountInfo: Decodable, Hashable {
+    struct MountInfo: Decodable, Hashable, Equatable {
         let source: String?
         let destination: String?
     }
     
-    struct ProcessInfo: Decodable {
+    struct ProcessInfo: Decodable, Equatable {
         let executable: String?
         let arguments: [String]?
         let environment: [String]?
     }
     
-    struct SocketInfo: Decodable, Hashable {
+    struct SocketInfo: Decodable, Hashable, Equatable {
         let hostPort: Int?
         let containerPort: Int?
         let proto: String?
