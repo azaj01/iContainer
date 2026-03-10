@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct ContainerDetailView: View {
     let containerId: String
@@ -450,34 +451,96 @@ private struct ContainerStatsView: View {
     @State private var isLoading = false
     @State private var autoRefresh = true
     @State private var refreshTask: Task<Void, Never>?
+    @State private var cpuSeries: [StatPoint] = []
+    @State private var memorySeries: [StatPoint] = []
+    @State private var netSeries: [StatPoint] = []
+    @State private var lastNetTotalBytes: Int64?
+    @State private var lastNetSampleDate: Date?
 
     private let refreshIntervalNanos: UInt64 = 3_000_000_000
 
     var body: some View {
-        ScrollView {
-            if let details = details {
-                VStack(alignment: .leading, spacing: 24) {
-                    ContainerHeaderView(details: details)
-                    DetailSection(title: "Resource Stats", icon: "speedometer") {
-                        if let stats = stats {
-                            DetailRow(label: "CPU %", value: stats.cpuPercent)
-                            DetailRow(label: "Memory Usage", value: stats.memoryUsage)
-                            DetailRow(label: "Net Rx/Tx", value: stats.netRxTx)
-                            DetailRow(label: "Block I/O", value: stats.blockIo)
-                            DetailRow(label: "Pids", value: stats.pids)
-                        } else if isLoading {
-                            ProgressView("Loading Stats...")
-                        } else {
-                            Text("No stats available.")
-                                .foregroundColor(.secondary)
+        GeometryReader { proxy in
+            let statsHeight = max(420, proxy.size.height - 180)
+            let chartHeight = max(90, (statsHeight - 48) / 3)
+            ScrollView {
+                if let details = details {
+                    VStack(alignment: .leading, spacing: 24) {
+                        ContainerHeaderView(details: details)
+                        DetailSection(title: "Resource Stats", icon: "speedometer") {
+                            if let stats = stats {
+                                HStack(alignment: .top, spacing: 16) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        DetailRow(label: "CPU %", value: stats.cpuPercent)
+                                        DetailRow(label: "Memory Usage", value: stats.memoryUsage)
+                                        DetailRow(label: "Net Rx/Tx", value: stats.netRxTx)
+                                        DetailRow(label: "Block I/O", value: stats.blockIo)
+                                        DetailRow(label: "Pids", value: stats.pids)
+                                    }
+                                    .padding()
+                                    .frame(width: (proxy.size.width - 64) * 0.33, alignment: .leading)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(10)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ChartPanel(title: "CPU %") {
+                                            Chart(cpuSeries) { point in
+                                                LineMark(
+                                                    x: .value("Time", point.time),
+                                                    y: .value("CPU %", point.value)
+                                                )
+                                            }
+                                            .chartXScale(domain: chartDomain)
+                                            .chartYScale(domain: 0...100)
+                                        }
+                                        .frame(height: chartHeight)
+
+                                        ChartPanel(title: "Memory (MB)") {
+                                            Chart(memorySeries) { point in
+                                                LineMark(
+                                                    x: .value("Time", point.time),
+                                                    y: .value("Memory", point.value)
+                                                )
+                                            }
+                                            .chartXScale(domain: chartDomain)
+                                        }
+                                        .frame(height: chartHeight)
+
+                                        ChartPanel(title: "Network (KB/s)") {
+                                            Chart(netSeries) { point in
+                                                LineMark(
+                                                    x: .value("Time", point.time),
+                                                    y: .value("Net KB/s", point.value)
+                                                )
+                                            }
+                                            .chartXScale(domain: chartDomain)
+                                        }
+                                        .frame(height: chartHeight)
+                                    }
+                                    .padding()
+                                    .padding(.trailing, 8)
+                                    .frame(width: (proxy.size.width - 64) * 0.67, alignment: .leading)
+                                }
+                                .padding(.top, -8)
+                                .frame(height: statsHeight)
+                            } else if isLoading {
+                                ProgressView("Loading Stats...")
+                            } else {
+                                Text("No stats available.")
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
+                    .padding()
+                } else {
+                    ProgressView("Loading Details...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 50)
                 }
-                .padding()
-            } else {
-                ProgressView("Loading Details...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, 50)
             }
         }
         .onAppear { startAutoRefresh() }
@@ -505,10 +568,76 @@ private struct ContainerStatsView: View {
         isLoading = true
         if let output = await containerManager.fetchContainerStats(containerId: containerId) {
             stats = parseContainerStats(output)
+            updateSeries()
         } else {
             stats = nil
         }
         isLoading = false
+    }
+
+    private func updateSeries() {
+        guard let stats else { return }
+        let now = Date()
+        if let cpu = stats.cpuPercentValue {
+            cpuSeries.append(StatPoint(time: now, value: cpu))
+        }
+        if let memBytes = stats.memoryUsageBytes {
+            memorySeries.append(StatPoint(time: now, value: Double(memBytes) / 1_048_576.0))
+        }
+        if let rx = stats.netRxBytes, let tx = stats.netTxBytes {
+            let total = rx + tx
+            if let lastTotal = lastNetTotalBytes, let lastTime = lastNetSampleDate {
+                let deltaBytes = max(0, total - lastTotal)
+                let elapsed = max(1.0, now.timeIntervalSince(lastTime))
+                let kbPerSec = (Double(deltaBytes) / 1024.0) / elapsed
+                netSeries.append(StatPoint(time: now, value: kbPerSec))
+            } else {
+                netSeries.append(StatPoint(time: now, value: 0))
+            }
+            lastNetTotalBytes = total
+            lastNetSampleDate = now
+        }
+        cpuSeries = Array(cpuSeries.suffix(60))
+        memorySeries = Array(memorySeries.suffix(60))
+        netSeries = Array(netSeries.suffix(60))
+    }
+
+    private var chartDomain: ClosedRange<Date> {
+        let now = Date()
+        let earliest = now.addingTimeInterval(-180)
+        let minTime = [
+            cpuSeries.first?.time,
+            memorySeries.first?.time,
+            netSeries.first?.time
+        ].compactMap { $0 }.min() ?? now
+        let start = max(earliest, minTime)
+        return start...now
+    }
+}
+
+private struct ChartPanel<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            content
+        }
+        .padding(8)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.35))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+        )
     }
 }
 
@@ -518,6 +647,10 @@ private struct ContainerStats: Equatable {
     let pids: String
     let netRxTx: String
     let blockIo: String
+    let cpuPercentValue: Double?
+    let memoryUsageBytes: Int64?
+    let netRxBytes: Int64?
+    let netTxBytes: Int64?
 }
 
 private func parseContainerStats(_ output: String) -> ContainerStats? {
@@ -536,6 +669,7 @@ private func parseContainerStats(_ output: String) -> ContainerStats? {
 
 private func statsFromDict(_ dict: [String: Any]) -> ContainerStats? {
     let cpu = stringIn(dict, keys: ["cpu", "cpuPercent", "cpu_percent", "cpuPct"]) ?? "-"
+    let cpuValue = parsePercent(cpu)
     let memUsageBytes = int64In(dict, keys: ["memoryUsageBytes", "memUsageBytes"])
     let memLimitBytes = int64In(dict, keys: ["memoryLimitBytes", "memLimitBytes"])
     let memUsage = formatUsageAndLimit(usageBytes: memUsageBytes, limitBytes: memLimitBytes)
@@ -557,7 +691,11 @@ private func statsFromDict(_ dict: [String: Any]) -> ContainerStats? {
         memoryUsage: memUsage,
         pids: pids,
         netRxTx: netRxTx,
-        blockIo: blockIo
+        blockIo: blockIo,
+        cpuPercentValue: cpuValue,
+        memoryUsageBytes: memUsageBytes,
+        netRxBytes: netRxBytes,
+        netTxBytes: netTxBytes
     )
 }
 
@@ -576,16 +714,23 @@ private func statsFromTable(_ output: String) -> ContainerStats? {
         map[name.lowercased()] = value
     }
     let cpu = map["cpu %"] ?? map["cpu%"] ?? "-"
+    let cpuValue = parsePercent(cpu)
     let mem = map["memory usage"] ?? map["memusage"] ?? "-"
     let net = map["net rx/tx"] ?? map["netrx/tx"] ?? "-"
     let block = map["block i/o"] ?? map["block i/o"] ?? "-"
     let pids = map["pids"] ?? "-"
+    let memBytes = parseUsageAndLimit(mem)?.usage
+    let netBytes = parseRxTx(net)
     return ContainerStats(
         cpuPercent: cpu,
         memoryUsage: mem,
         pids: pids,
         netRxTx: net,
-        blockIo: block
+        blockIo: block,
+        cpuPercentValue: cpuValue,
+        memoryUsageBytes: memBytes,
+        netRxBytes: netBytes?.rx,
+        netTxBytes: netBytes?.tx
     )
 }
 
@@ -635,6 +780,55 @@ private func formatRxTx(rxBytes: Int64?, txBytes: Int64?) -> String? {
     let rx = ByteCountFormatter.string(fromByteCount: rxBytes, countStyle: .file)
     let tx = ByteCountFormatter.string(fromByteCount: txBytes, countStyle: .file)
     return "\(rx) / \(tx)"
+}
+
+private struct StatPoint: Identifiable {
+    let id = UUID()
+    let time: Date
+    let value: Double
+}
+
+private func parsePercent(_ text: String) -> Double? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleaned = trimmed.replacingOccurrences(of: "%", with: "")
+    return Double(cleaned)
+}
+
+private func parseUsageAndLimit(_ text: String) -> (usage: Int64, limit: Int64?)? {
+    let parts = text.components(separatedBy: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+    guard let usage = parseSizeToBytes(parts.first) else { return nil }
+    let limit = parts.count > 1 ? parseSizeToBytes(parts[1]) : nil
+    return (usage, limit)
+}
+
+private func parseRxTx(_ text: String) -> (rx: Int64, tx: Int64)? {
+    let parts = text.components(separatedBy: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+    guard parts.count >= 2,
+          let rx = parseSizeToBytes(parts[0]),
+          let tx = parseSizeToBytes(parts[1]) else { return nil }
+    return (rx, tx)
+}
+
+private func parseSizeToBytes(_ text: String?) -> Int64? {
+    guard let text else { return nil }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let tokens = trimmed.split(separator: " ")
+    guard let numberPart = tokens.first, let value = Double(numberPart) else { return nil }
+    let unit = tokens.count > 1 ? tokens[1].lowercased() : "b"
+    let multiplier: Double
+    switch unit {
+    case "kb", "kib":
+        multiplier = 1024
+    case "mb", "mib":
+        multiplier = 1024 * 1024
+    case "gb", "gib":
+        multiplier = 1024 * 1024 * 1024
+    case "tb", "tib":
+        multiplier = 1024 * 1024 * 1024 * 1024
+    default:
+        multiplier = 1
+    }
+    return Int64(value * multiplier)
 }
 
 private struct ContainerInspectFallback: Hashable {
