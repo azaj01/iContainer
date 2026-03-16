@@ -11,10 +11,6 @@ struct ContainerDetailView: View {
     @State private var rawInspectText: String = ""
     @State private var fallback: ContainerInspectFallback?
     @State private var selectedTab: Int
-    @State private var showingExecSheet = false
-    @State private var execCommand = "echo hello"
-    @State private var execOutput = ""
-    @State private var execIsRunning = false
 
     init(containerId: String, initialTab: Int = 0) {
         self.containerId = containerId
@@ -44,11 +40,7 @@ struct ContainerDetailView: View {
                     details: details,
                     fallback: fallback,
                     isLoading: isLoading,
-                    formattedInspectOutput: formattedInspectOutput,
-                    onExec: {
-                        execOutput = ""
-                        showingExecSheet = true
-                    }
+                    formattedInspectOutput: formattedInspectOutput
                 )
                 .opacity(selectedTab == 0 ? 1 : 0)
                 .allowsHitTesting(selectedTab == 0)
@@ -56,22 +48,14 @@ struct ContainerDetailView: View {
                 ContainerStatsView(
                     details: details,
                     containerId: containerId,
-                    cpuLimit: fallback?.resources?.cpus,
-                    onExec: {
-                        execOutput = ""
-                        showingExecSheet = true
-                    }
+                    cpuLimit: fallback?.resources?.cpus
                 )
                 .opacity(selectedTab == 1 ? 1 : 0)
                 .allowsHitTesting(selectedTab == 1)
 
                 ContainerShellView(
                     details: details,
-                    containerId: containerId,
-                    onExec: {
-                        execOutput = ""
-                        showingExecSheet = true
-                    }
+                    containerId: containerId
                 )
                 .opacity(selectedTab == 2 ? 1 : 0)
                 .allowsHitTesting(selectedTab == 2)
@@ -79,56 +63,13 @@ struct ContainerDetailView: View {
                 ContainerLogsView(
                     details: details,
                     containerId: containerId,
-                    isActive: selectedTab == 3,
-                    onExec: {
-                        execOutput = ""
-                        showingExecSheet = true
-                    }
+                    isActive: selectedTab == 3
                 )
                 .opacity(selectedTab == 3 ? 1 : 0)
                 .allowsHitTesting(selectedTab == 3)
             }
         }
         .navigationTitle(details?.name ?? "Details")
-        .sheet(isPresented: $showingExecSheet) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Execute Command")
-                    .font(.headline)
-                TextField("Command", text: $execCommand)
-                    .textFieldStyle(.roundedBorder)
-                HStack {
-                    Button("Run") {
-                        execIsRunning = true
-                        Task {
-                            let output = await containerManager.execContainer(
-                                containerId: containerId,
-                                command: execCommand
-                            )
-                            execOutput = output?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "No output."
-                            execIsRunning = false
-                        }
-                    }
-                    .disabled(execCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || execIsRunning)
-                    if execIsRunning {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                    Spacer()
-                    Button("Close") {
-                        showingExecSheet = false
-                    }
-                }
-                ScrollView {
-                    Text(execOutput.isEmpty ? "Output will appear here." : execOutput)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 200)
-            }
-            .padding()
-            .frame(minWidth: 500, minHeight: 360)
-        }
         .task(id: containerId) {
             await loadDetails()
         }
@@ -201,7 +142,6 @@ private struct ContainerInfoView: View {
     let fallback: ContainerInspectFallback?
     let isLoading: Bool
     let formattedInspectOutput: String
-    let onExec: () -> Void
 
     var body: some View {
         ScrollView {
@@ -211,7 +151,7 @@ private struct ContainerInfoView: View {
                     .padding(.top, 50)
             } else if let details = details {
                 VStack(alignment: .leading, spacing: 24) {
-                    ContainerHeaderView(details: details, onExec: onExec)
+                    ContainerHeaderView(details: details)
 
                     let columns = [GridItem(.adaptive(minimum: 280), spacing: 16, alignment: .top)]
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
@@ -345,7 +285,6 @@ private struct ContainerInfoView: View {
 
 private struct ContainerHeaderView: View {
     let details: ContainerDetails
-    let onExec: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -353,12 +292,6 @@ private struct ContainerHeaderView: View {
                 Text(details.name)
                     .font(.largeTitle)
                     .fontWeight(.bold)
-                Button {
-                    onExec()
-                } label: {
-                    Image(systemName: "terminal")
-                }
-                .buttonStyle(.bordered)
                 Spacer()
                 StatusBadge(status: details.status ?? "unknown")
             }
@@ -511,15 +444,13 @@ private final class ContainerShellSession: ObservableObject {
 private struct ContainerShellView: View {
     let details: ContainerDetails?
     let containerId: String
-    let onExec: () -> Void
     @StateObject private var session: ContainerShellSession
     @State private var command: String = ""
     @State private var autoScroll = true
 
-    init(details: ContainerDetails?, containerId: String, onExec: @escaping () -> Void) {
+    init(details: ContainerDetails?, containerId: String) {
         self.details = details
         self.containerId = containerId
-        self.onExec = onExec
         _session = StateObject(wrappedValue: ContainerShellSession.shared(for: containerId))
     }
 
@@ -528,7 +459,7 @@ private struct ContainerShellView: View {
             let shellHeight = max(280, proxy.size.height - 240)
             VStack(alignment: .leading, spacing: 24) {
                 if let details = details {
-                    ContainerHeaderView(details: details, onExec: onExec)
+                    ContainerHeaderView(details: details)
                 } else {
                     ProgressView("Loading Details...")
                         .padding(.top, 12)
@@ -600,7 +531,6 @@ private struct ContainerLogsView: View {
     let details: ContainerDetails?
     let containerId: String
     let isActive: Bool
-    let onExec: () -> Void
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var logsText: String = ""
     @State private var isLoadingLogs = false
@@ -619,7 +549,7 @@ private struct ContainerLogsView: View {
             let logAreaHeight = max(240, proxy.size.height - 220)
             VStack(alignment: .leading, spacing: 24) {
                 if let details = details {
-                    ContainerHeaderView(details: details, onExec: onExec)
+                    ContainerHeaderView(details: details)
                 } else {
                     ProgressView("Loading Details...")
                         .padding(.top, 12)
@@ -782,7 +712,6 @@ private struct ContainerStatsView: View {
     let details: ContainerDetails?
     let containerId: String
     let cpuLimit: Int?
-    let onExec: () -> Void
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var stats: ContainerStats?
     @State private var isLoading = false
@@ -820,7 +749,7 @@ private struct ContainerStatsView: View {
             ScrollView {
                 if let details = details {
                     VStack(alignment: .leading, spacing: 24) {
-                        ContainerHeaderView(details: details, onExec: onExec)
+                        ContainerHeaderView(details: details)
                         DetailSection(title: "Resource Stats", icon: "speedometer") {
                             if let stats = stats {
                                 HStack(alignment: .top, spacing: 16) {

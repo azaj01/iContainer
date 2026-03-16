@@ -20,13 +20,7 @@ struct ContentView: View {
     @State private var showingPullImageAlert = false
     @State private var pullImageReference = ""
     @State private var isPullingImage = false
-    @State private var showingExecSheet = false
-    @State private var execContainerId: String = ""
-    @State private var execCommand = "echo hello"
-    @State private var execOutput = ""
-    @State private var execIsRunning = false
     @State private var selection: SidebarSelection?
-    @FocusState private var execCommandFocused: Bool
 
     var body: some View {
         Group {
@@ -77,9 +71,6 @@ struct ContentView: View {
         } message: {
             Text("Enter the image reference to pull from the registry.")
         }
-        .sheet(isPresented: $showingExecSheet) {
-            execSheet
-        }
         .task {
             await containerManager.refreshImages()
         }
@@ -100,10 +91,7 @@ struct ContentView: View {
                                 container: container,
                                 onNavigateToTab: { tab in
                                     selection = .container(ContainerNavigationTarget(id: container.id, tab: tab))
-                                },
-                                showingExecSheet: $showingExecSheet,
-                                execContainerId: $execContainerId,
-                                execOutput: $execOutput
+                                }
                             )
                         }
                     }
@@ -146,43 +134,6 @@ struct ContentView: View {
         }
     }
 
-    private var execSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Execute Command")
-                .font(.headline)
-            TextField("Command", text: $execCommand)
-                .textFieldStyle(.roundedBorder)
-                .focused($execCommandFocused)
-            HStack {
-                Button("Run") {
-                    runExecCommand()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(execCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || execIsRunning)
-                if execIsRunning {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                }
-                Spacer()
-                Button("Close") {
-                    showingExecSheet = false
-                }
-            }
-            ScrollView {
-                Text(execOutput.isEmpty ? "Output will appear here." : execOutput)
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(minHeight: 200)
-        }
-        .padding()
-        .frame(minWidth: 500, minHeight: 360)
-        .onAppear {
-            execCommandFocused = true
-        }
-    }
-
     @ViewBuilder
     private var detailView: some View {
         switch selection {
@@ -207,20 +158,6 @@ struct ContentView: View {
         )
     }
 
-    private func runExecCommand() {
-        let trimmed = execCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !execIsRunning else { return }
-        execIsRunning = true
-        Task {
-            let output = await containerManager.execContainer(
-                containerId: execContainerId,
-                command: trimmed
-            )
-            execOutput = output?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "No output."
-            execIsRunning = false
-        }
-    }
-    
     private var addToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Button {
@@ -289,9 +226,6 @@ struct ServiceStatusView: View {
 struct ContainerRowView: View {
     let container: Container
     let onNavigateToTab: (Int) -> Void
-    @Binding var showingExecSheet: Bool
-    @Binding var execContainerId: String
-    @Binding var execOutput: String
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var showingDeleteConfirmation = false
     @State private var showingStopConfirmation = false
@@ -376,13 +310,6 @@ struct ContainerRowView: View {
                     }
                 }
                 Button {
-                    execContainerId = container.id
-                    execOutput = ""
-                    showingExecSheet = true
-                } label: {
-                    Label("Exec", systemImage: "terminal")
-                }
-                Button {
                     Task {
                         await containerManager.stopContainer(containerId: container.id)
                         await containerManager.startContainer(containerId: container.id)
@@ -405,13 +332,6 @@ struct ContainerRowView: View {
                             .foregroundColor(.green)
                         Text("Start")
                     }
-                }
-                Button {
-                    execContainerId = container.id
-                    execOutput = ""
-                    showingExecSheet = true
-                } label: {
-                    Label("Exec", systemImage: "terminal")
                 }
             }
             Divider()
