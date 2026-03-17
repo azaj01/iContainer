@@ -9,7 +9,7 @@ struct ServiceDetailView: View {
                 // Header
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("System Service")
+                        Text("Apple Container System Service")
                             .font(.largeTitle)
                             .fontWeight(.bold)
                         Spacer()
