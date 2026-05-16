@@ -12,6 +12,7 @@ class ServiceManager: ObservableObject {
     @Published var lastCheckedAt: Date?
     private var timer: Timer?
     private let logger = Logger(label: "ServiceManager")
+    private var isCheckingStatus = false
 
     init() {
         startPolling()
@@ -26,6 +27,10 @@ class ServiceManager: ObservableObject {
     }
 
     func checkServiceStatus() async {
+        guard !isCheckingStatus else { return }
+        isCheckingStatus = true
+        defer { isCheckingStatus = false }
+
         let running = await isContainerServiceRunning()
         await MainActor.run {
             self.isServiceRunning = running

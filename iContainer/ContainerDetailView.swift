@@ -36,38 +36,39 @@ struct ContainerDetailView: View {
             .padding(.horizontal)
             .padding(.top, 8)
 
-            ZStack {
-                ContainerInfoView(
-                    details: details,
-                    fallback: fallback,
-                    isLoading: isLoading,
-                    formattedInspectOutput: formattedInspectOutput
-                )
-                .opacity(selectedTab == 0 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 0)
+            Group {
+                switch selectedTab {
+                case 0:
+                    ContainerInfoView(
+                        details: details,
+                        fallback: fallback,
+                        isLoading: isLoading,
+                        formattedInspectOutput: formattedInspectOutput
+                    )
 
-                ContainerStatsView(
-                    details: details,
-                    containerId: containerId,
-                    cpuLimit: fallback?.resources?.cpus
-                )
-                .opacity(selectedTab == 1 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 1)
+                case 1:
+                    ContainerStatsView(
+                        details: details,
+                        containerId: containerId,
+                        cpuLimit: fallback?.resources?.cpus
+                    )
 
-                ContainerShellView(
-                    details: details,
-                    containerId: containerId
-                )
-                .opacity(selectedTab == 2 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 2)
+                case 2:
+                    ContainerShellView(
+                        details: details,
+                        containerId: containerId
+                    )
 
-                ContainerLogsView(
-                    details: details,
-                    containerId: containerId,
-                    isActive: selectedTab == 3
-                )
-                .opacity(selectedTab == 3 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 3)
+                case 3:
+                    ContainerLogsView(
+                        details: details,
+                        containerId: containerId,
+                        isActive: true
+                    )
+
+                default:
+                    EmptyView()
+                }
             }
         }
         .navigationTitle(details?.name ?? "Details")
@@ -873,7 +874,6 @@ private struct ContainerStatsView: View {
     }
 
     private static var cache: [String: StatsCache] = [:]
-    private static var sharedTasks: [String: Task<Void, Never>] = [:]
 
     var body: some View {
         GeometryReader { proxy in
@@ -978,7 +978,6 @@ private struct ContainerStatsView: View {
         }
         .onAppear {
             loadCache()
-            ensureSharedPolling()
             startAutoRefresh()
         }
         .onDisappear {
@@ -1020,35 +1019,6 @@ private struct ContainerStatsView: View {
             while !Task.isCancelled {
                 if autoRefresh {
                     await refreshStats()
-                }
-                try? await Task.sleep(nanoseconds: refreshIntervalNanos)
-            }
-        }
-    }
-
-    private func ensureSharedPolling() {
-        if Self.sharedTasks[containerId] != nil { return }
-        let manager = containerManager
-        Self.sharedTasks[containerId] = Task {
-            while !Task.isCancelled {
-                if let output = await manager.fetchContainerStats(containerId: containerId) {
-                    let parsed = parseContainerStats(output)
-                    await MainActor.run {
-                        if let parsed {
-                            var cached = Self.cache[containerId] ?? StatsCache(
-                                stats: nil,
-                                cpuSeries: [],
-                                cpuSeriesIsRaw: true,
-                                memorySeries: [],
-                                netSeries: [],
-                                lastNetTotalBytes: nil,
-                                lastNetSampleDate: nil
-                            )
-                            cached.stats = parsed
-                            cached = updateCacheSeries(cached: cached, with: parsed)
-                            Self.cache[containerId] = cached
-                        }
-                    }
                 }
                 try? await Task.sleep(nanoseconds: refreshIntervalNanos)
             }

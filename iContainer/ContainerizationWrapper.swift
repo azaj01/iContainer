@@ -20,6 +20,7 @@ class ContainerizationWrapper: ObservableObject {
     @Published var registryAuthState: RegistryAuthState = .unknown
     private let logger = Logger(label: "iContainer")
     private var timer: Timer?
+    private var isPolling = false
 
     init() {
         checkDependencies()
@@ -39,20 +40,26 @@ class ContainerizationWrapper: ObservableObject {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task {
-                await self?.refreshContainers()
-                await self?.refreshImages()
-                await self?.refreshRegistryAuthStatus()
+                await self?.pollContainerState()
             }
         }
         Task {
-            await refreshContainers()
-            await refreshImages()
-            await refreshRegistryAuthStatus()
+            await pollContainerState()
         }
     }
 
     deinit {
         timer?.invalidate()
+    }
+
+    private func pollContainerState() async {
+        guard !isPolling else { return }
+        isPolling = true
+        defer { isPolling = false }
+
+        await refreshContainers()
+        await refreshImages()
+        await refreshRegistryAuthStatus()
     }
     
     // MARK: - Terminal command runner
