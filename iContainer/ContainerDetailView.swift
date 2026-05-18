@@ -76,14 +76,14 @@ struct ContainerDetailView: View {
             await loadDetails()
         }
         .onChange(of: containerManager.containers) { _, _ in
-            updateDetailsFromList()
+            Task {
+                await loadDetails()
+            }
         }
     }
 
     private func loadDetails() async {
-        if details == nil {
-            details = await containerManager.inspectContainer(containerId: containerId)
-        }
+        details = await containerManager.inspectContainer(containerId: containerId)
         if let raw = await containerManager.inspectContainerRaw(containerId: containerId) {
             rawInspectText = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             fallback = parseContainerInspect(rawInspectText)

@@ -16,7 +16,7 @@ final class AppQuitDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Apple Container System Service is running"
+        alert.messageText = "Apple container service is running"
         alert.informativeText = "Vuoi fermare il servizio container prima di chiudere iContainer?"
         alert.addButton(withTitle: "Stop Service and Quit")
         alert.addButton(withTitle: "Quit and Leave Running")

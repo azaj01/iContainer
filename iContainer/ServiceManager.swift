@@ -41,7 +41,7 @@ class ServiceManager: ObservableObject {
         await MainActor.run {
             self.isServiceRunning = running
             self.serviceStatus = running ? "Service running" : "Service not running"
-            logger.info("Container System Service status: \(self.serviceStatus)")
+            logger.info("Container service status: \(self.serviceStatus)")
         }
     }
 

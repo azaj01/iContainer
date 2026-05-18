@@ -81,7 +81,7 @@ struct MenuBarContainersView: View {
         Button {
             showServiceDetails()
         } label: {
-            Label("Service Details", systemImage: "server.rack")
+            Label("Apple container service details", systemImage: "server.rack")
         }
 
         if serviceManager.isServiceRunning {

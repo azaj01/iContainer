@@ -5,6 +5,8 @@ struct ServiceDetailView: View {
     @EnvironmentObject var serviceManager: ServiceManager
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var selectedTab = 0
+    @State private var isRemovingRegistryCredentials = false
+    @State private var showingRemoveRegistryCredentialsConfirmation = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +34,7 @@ struct ServiceDetailView: View {
                 }
             }
         }
-        .navigationTitle("Service Details")
+        .navigationTitle("Apple container service")
         .task {
             await serviceManager.checkServiceStatus()
         }
@@ -40,6 +42,20 @@ struct ServiceDetailView: View {
             if selectedTab == 1 && serviceManager.serviceLogs.isEmpty {
                 await serviceManager.refreshServiceLogs()
             }
+        }
+        .confirmationDialog(
+            "Remove saved registry credentials?",
+            isPresented: $showingRemoveRegistryCredentialsConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let host = registryPrimaryHost {
+                Button("Remove Credentials for \(host)", role: .destructive) {
+                    removeRegistryCredentials(host: host)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You can log in again later from the Registry Login action.")
         }
     }
 
@@ -49,7 +65,7 @@ struct ServiceDetailView: View {
                 // Header
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Apple Container System Service")
+                        Text("Apple container service")
                             .font(.largeTitle)
                             .fontWeight(.bold)
                         Spacer()
@@ -88,6 +104,28 @@ struct ServiceDetailView: View {
                         DetailRow(label: "Status", value: registryStatusText)
                         if let host = registryPrimaryHost {
                             DetailRow(label: "Host", value: host)
+                        }
+                        Text(registryStatusDescription)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+
+                        if registryPrimaryHost != nil {
+                            HStack {
+                                Button(role: .destructive) {
+                                    showingRemoveRegistryCredentialsConfirmation = true
+                                } label: {
+                                    if isRemovingRegistryCredentials {
+                                        ProgressView()
+                                            .scaleEffect(0.75)
+                                    } else {
+                                        Label("Remove Credentials", systemImage: "key.slash")
+                                    }
+                                }
+                                .disabled(isRemovingRegistryCredentials)
+                                Spacer()
+                            }
+                            .padding(.top, 4)
                         }
                     }
                 } else {
@@ -205,9 +243,22 @@ struct ServiceDetailView: View {
         case .checking:
             return "Checking..."
         case .authenticated:
-            return "Authenticated"
+            return "Credentials saved"
         case .notAuthenticated:
-            return "Not authenticated"
+            return "No saved credentials"
+        }
+    }
+
+    private var registryStatusDescription: String {
+        switch containerManager.registryAuthState {
+        case .authenticated:
+            return "Saved registry credentials were found. Image pulls can still fail if the image reference is wrong, the repository is private, or the saved token is expired or lacks access."
+        case .notAuthenticated:
+            return "No saved registry credentials were found."
+        case .checking:
+            return "Checking saved registry credentials."
+        case .unknown:
+            return "Registry credential status could not be determined."
         }
     }
 
@@ -226,5 +277,14 @@ struct ServiceDetailView: View {
             return hosts.first
         }
         return nil
+    }
+
+    private func removeRegistryCredentials(host: String) {
+        guard !isRemovingRegistryCredentials else { return }
+        isRemovingRegistryCredentials = true
+        Task {
+            _ = await containerManager.logoutRegistry(host: host)
+            isRemovingRegistryCredentials = false
+        }
     }
 }

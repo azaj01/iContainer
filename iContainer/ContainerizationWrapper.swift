@@ -17,6 +17,7 @@ class ContainerizationWrapper: ObservableObject {
     @Published var images: [ContainerImage] = []
     @Published var updatingImageIDs: Set<String> = []
     @Published var lastErrorMessage: String?
+    @Published var lastBuildOutput: String?
     @Published var registryAuthState: RegistryAuthState = .unknown
     private let logger = Logger(label: "iContainer")
     private var timer: Timer?
@@ -179,6 +180,7 @@ class ContainerizationWrapper: ObservableObject {
         guard !trimmed.isEmpty else { return }
         updatingImageIDs.insert(trimmed)
         defer { updatingImageIDs.remove(trimmed) }
+        lastErrorMessage = nil
         do {
             _ = try await runCommand(["image", "pull", trimmed])
             await refreshImages()
@@ -217,6 +219,51 @@ class ContainerizationWrapper: ObservableObject {
             logger.error("Errore nell'ispezione dell'immagine: \(error)")
             lastErrorMessage = error.localizedDescription
             return nil
+        }
+    }
+
+    func buildImage(
+        tag: String,
+        dockerfilePath: String,
+        contextDirectory: String
+    ) async -> Bool {
+        let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDockerfile = dockerfilePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContext = contextDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedTag.isEmpty else {
+            lastErrorMessage = "Image tag is required."
+            return false
+        }
+        guard !trimmedDockerfile.isEmpty else {
+            lastErrorMessage = "Dockerfile is required."
+            return false
+        }
+        guard !trimmedContext.isEmpty else {
+            lastErrorMessage = "Build context folder is required."
+            return false
+        }
+
+        lastErrorMessage = nil
+        lastBuildOutput = nil
+        do {
+            let output = try await runCommand([
+                "build",
+                "--tag", trimmedTag,
+                "--file", trimmedDockerfile,
+                trimmedContext
+            ])
+            lastBuildOutput = output
+            await refreshImages()
+            return true
+        } catch {
+            logger.error("Errore nella build dell'immagine: \(error)")
+            lastErrorMessage = error.localizedDescription
+            lastBuildOutput = error.localizedDescription
+            if Self.isRegistryAuthError(error.localizedDescription) {
+                registryAuthState = .notAuthenticated
+            }
+            return false
         }
     }
 
@@ -288,6 +335,7 @@ class ContainerizationWrapper: ObservableObject {
         }
 
         var args: [String] = ["create"]
+        lastErrorMessage = nil
 
         if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["--name", name.trimmingCharacters(in: .whitespacesAndNewlines)]
@@ -477,6 +525,62 @@ class ContainerizationWrapper: ObservableObject {
         "container registry login \(host) --username \(username)"
     }
 
+    func logoutRegistry(host: String) async -> Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty else {
+            lastErrorMessage = "Registry host is required."
+            return false
+        }
+
+        lastErrorMessage = nil
+        let hostsToTry = Self.registryLoginHosts(for: trimmedHost)
+        let expectedRemainingHosts = Set(hostsToTry.map { $0.lowercased() })
+        var lastMeaningfulError: String?
+        var didLogoutAtLeastOnce = false
+
+        for candidateHost in hostsToTry {
+            let commandOptions: [[String]] = [
+                ["registry", "logout", candidateHost],
+                ["r", "logout", candidateHost]
+            ]
+
+            for args in commandOptions {
+                do {
+                    let output = try await runCommand(args)
+                    if Self.looksLikeTopLevelHelp(output) {
+                        continue
+                    }
+                    didLogoutAtLeastOnce = true
+                    break
+                } catch {
+                    let message = error.localizedDescription.lowercased()
+                    if message.contains("unknown subcommand")
+                        || message.contains("invalid option")
+                        || message.contains("help information")
+                        || message.contains("usage:") {
+                        continue
+                    }
+                    lastMeaningfulError = error.localizedDescription
+                }
+            }
+        }
+
+        await refreshRegistryAuthStatus(showLoadingState: true)
+        if didLogoutAtLeastOnce {
+            if case .authenticated(let hosts) = registryAuthState {
+                let remaining = Set(hosts.map { $0.lowercased() })
+                if remaining.isDisjoint(with: expectedRemainingHosts) {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+
+        lastErrorMessage = lastMeaningfulError ?? "Logout registry non riuscito. Prova `container registry logout \(trimmedHost)` da terminale."
+        return false
+    }
+
     static func isRegistryAuthError(_ message: String) -> Bool {
         let lower = message.lowercased()
         return lower.contains("401 unauthorized")
@@ -485,6 +589,13 @@ class ContainerizationWrapper: ObservableObject {
             || lower.contains("no credentials found for host")
             || lower.contains("insufficient_scope")
             || lower.contains("denied")
+    }
+
+    static func isLikelyDockerHubImageReferenceError(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("401 unauthorized")
+            && lower.contains("registry-1.docker.io/v2/library/")
+            && lower.contains("/manifests/")
     }
 
     static func looksLikeTopLevelHelp(_ output: String) -> Bool {
@@ -677,14 +788,15 @@ private extension ContainerizationWrapper {
     static func parseRegistryHosts(_ output: String) -> [String] {
         output
             .split(whereSeparator: \.isNewline)
-            .map { line in
-                line
+            .compactMap { line -> String? in
+                let columns = line
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .split(whereSeparator: \.isWhitespace)
-                    .first
-                    .map(String.init) ?? ""
+                guard let firstColumn = columns.first else { return nil }
+                let host = String(firstColumn)
+                return host.lowercased() == "hostname" ? nil : host
             }
-            .filter { !$0.isEmpty && !$0.lowercased().contains("host") && !$0.lowercased().contains("registry") }
+            .filter { !$0.isEmpty }
     }
 
     static func parseEditableSettings(_ raw: String) -> ContainerEditableSettings? {
