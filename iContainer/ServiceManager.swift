@@ -70,129 +70,9 @@ class ServiceManager: ObservableObject {
     }
     
     private func parseServiceDetails(_ output: String) async {
-        var details = ServiceDetails()
-        let lines = output.components(separatedBy: .newlines)
-        
-        for line in lines {
-            let lowercased = line.lowercased()
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let keyValue = keyValuePair(from: trimmed) {
-                let key = keyValue.key.lowercased()
-                let value = keyValue.value
-
-                if isDataRootKey(key) {
-                    details.dataRoot = value
-                    continue
-                }
-                if isInstallRootKey(key) {
-                    details.installRoot = value
-                    continue
-                }
-                if isVersionKey(key) {
-                    let parsed = parseVersionAndCommit(from: value)
-                    if let version = parsed.version {
-                        details.version = version
-                    }
-                    if let commit = parsed.commit {
-                        details.commit = commit
-                    }
-                    continue
-                }
-                if isCommitKey(key) {
-                    details.commit = value
-                    continue
-                }
-            }
-
-            if lowercased.contains("data root") || lowercased.contains("data_root") || lowercased.contains("dataroot") {
-                details.dataRoot = valueAfterColon(in: trimmed) ?? details.dataRoot
-                continue
-            }
-            if lowercased.contains("install root") || lowercased.contains("install_root") || lowercased.contains("installroot") {
-                details.installRoot = valueAfterColon(in: trimmed) ?? details.installRoot
-                continue
-            }
-
-            if lowercased.contains("version") {
-                if let version = regexFirstMatch(in: trimmed, pattern: #"version:\s*([^\s\)]+)"#) {
-                    details.version = version
-                } else if let version = valueAfterColon(in: trimmed) {
-                    details.version = version
-                }
-            }
-
-            if lowercased.contains("commit") {
-                if let commit = regexFirstMatch(in: trimmed, pattern: #"commit:\s*([A-Fa-f0-9]+)"#) {
-                    details.commit = commit
-                } else if let commit = regexFirstMatch(in: trimmed, pattern: #"\(commit\s+([A-Fa-f0-9]+)\)"#) {
-                    details.commit = commit
-                } else if let commit = valueAfterColon(in: trimmed) {
-                    details.commit = commit
-                }
-            }
-        }
-        
+        let details = CLIParsers.parseServiceDetails(output)
         await MainActor.run {
             self.serviceDetails = details
-        }
-    }
-
-    private func keyValuePair(from line: String) -> (key: String, value: String)? {
-        if line.isEmpty || line.lowercased() == "field value" {
-            return nil
-        }
-        let pattern = #"^(\S+)\s+(.*)$"#
-        guard let key = regexFirstMatch(in: line, pattern: pattern, group: 1),
-              let value = regexFirstMatch(in: line, pattern: pattern, group: 2) else {
-            return nil
-        }
-        let trimmedValue = value.trimmingCharacters(in: .whitespaces)
-        return trimmedValue.isEmpty ? nil : (key, trimmedValue)
-    }
-
-    private func isDataRootKey(_ key: String) -> Bool {
-        key == "dataroot" || key == "data_root" || key == "appRoot".lowercased()
-            || key == "approot"
-    }
-
-    private func isInstallRootKey(_ key: String) -> Bool {
-        key == "installroot" || key == "install_root"
-    }
-
-    private func isVersionKey(_ key: String) -> Bool {
-        key == "apiserver.version" || key == "container-apiserver.version" || key == "version"
-    }
-
-    private func isCommitKey(_ key: String) -> Bool {
-        key == "apiserver.commit" || key == "container-apiserver.commit" || key == "commit"
-    }
-
-    private func parseVersionAndCommit(from value: String) -> (version: String?, commit: String?) {
-        let version = regexFirstMatch(in: value, pattern: #"(\d+(?:\.\d+)+)"#)
-        let commit = regexFirstMatch(in: value, pattern: #"commit:\s*([A-Fa-f0-9]+)"#)
-        return (version, commit)
-    }
-
-    private func valueAfterColon(in line: String) -> String? {
-        let parts = line.split(separator: ":", maxSplits: 1)
-        guard parts.count > 1 else { return nil }
-        let value = String(parts[1]).trimmingCharacters(in: .whitespaces)
-        return value.isEmpty ? nil : value
-    }
-
-    private func regexFirstMatch(in line: String, pattern: String, group: Int = 1) -> String? {
-        do {
-            let regex = try NSRegularExpression(pattern: pattern, options: [])
-            let range = NSRange(line.startIndex..<line.endIndex, in: line)
-            guard let match = regex.firstMatch(in: line, options: [], range: range) else {
-                return nil
-            }
-            if match.numberOfRanges > group, let matchRange = Range(match.range(at: group), in: line) {
-                return String(line[matchRange])
-            }
-            return nil
-        } catch {
-            return nil
         }
     }
 
@@ -384,16 +264,11 @@ private extension ServiceManager {
     }
 
     nonisolated static func limitedLogOutput(_ output: String, maxLines: Int = 500) -> String {
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.count > maxLines else {
-            return output
-        }
-        let visibleLines = lines.suffix(maxLines).joined(separator: "\n")
-        return "Showing the latest \(maxLines) of \(lines.count) log lines.\n\n\(visibleLines)"
+        CLIParsers.limitedLogOutput(output, maxLines: maxLines)
     }
 }
 
-struct ServiceDetails {
+nonisolated struct ServiceDetails: Sendable, Equatable {
     var dataRoot: String?
     var installRoot: String?
     var version: String?

@@ -581,36 +581,23 @@ class ContainerizationWrapper: ObservableObject {
         return false
     }
 
+    // The actual parsing logic lives in `CLIParsers` so it can be unit
+    // tested without spinning up this MainActor-isolated type. These
+    // forwarders keep the call sites in views unchanged.
     static func isRegistryAuthError(_ message: String) -> Bool {
-        let lower = message.lowercased()
-        return lower.contains("401 unauthorized")
-            || lower.contains("unauthorized")
-            || lower.contains("authentication required")
-            || lower.contains("no credentials found for host")
-            || lower.contains("insufficient_scope")
-            || lower.contains("denied")
+        CLIParsers.isRegistryAuthError(message)
     }
 
     static func isLikelyDockerHubImageReferenceError(_ message: String) -> Bool {
-        let lower = message.lowercased()
-        return lower.contains("401 unauthorized")
-            && lower.contains("registry-1.docker.io/v2/library/")
-            && lower.contains("/manifests/")
+        CLIParsers.isLikelyDockerHubImageReferenceError(message)
     }
 
     static func looksLikeTopLevelHelp(_ output: String) -> Bool {
-        let lower = output.lowercased()
-        return lower.contains("overview: a container platform for macos")
-            && lower.contains("container subcommands:")
-            && lower.contains("image subcommands:")
+        CLIParsers.looksLikeTopLevelHelp(output)
     }
 
     static func registryLoginHosts(for host: String) -> [String] {
-        let normalized = host.lowercased()
-        if normalized == "registry-1.docker.io" || normalized == "docker.io" || normalized == "index.docker.io" {
-            return ["registry-1.docker.io", "docker.io", "index.docker.io"]
-        }
-        return [host]
+        CLIParsers.registryLoginHosts(for: host)
     }
     
     func inspectContainer(containerId: String) async -> ContainerDetails? {
@@ -718,194 +705,24 @@ class ContainerizationWrapper: ObservableObject {
 }
 
 private extension ContainerizationWrapper {
+    // Parsing of CLI output is delegated to `CLIParsers` so it can be
+    // covered by unit tests. Keep these helpers as the integration point
+    // between the (async, MainActor) wrapper and the (pure) parser layer.
+
     func parseImageList(_ output: String) -> [ContainerImage] {
-        guard let data = output.data(using: .utf8) else { return [] }
-        do {
-            let json = try JSONSerialization.jsonObject(with: data, options: [])
-            guard let array = json as? [[String: Any]] else { return [] }
-            return array.compactMap { mapImage($0) }
-        } catch {
-            logger.error("Errore nel parsing immagini: \(error)")
-            return []
-        }
-    }
-
-    func mapImage(_ dict: [String: Any]) -> ContainerImage? {
-        let reference = stringValue(dict, keys: ["reference", "ref"]) ?? ""
-        let (name, tag) = splitReference(reference)
-        let descriptor = dict["descriptor"] as? [String: Any]
-        let digest = descriptor?["digest"] as? String
-        let sizeBytes = intValue(descriptor ?? [:], keys: ["size"])
-        let sizeText = stringValue(dict, keys: ["fullSize", "full_size"])
-        let annotations = descriptor?["annotations"] as? [String: Any]
-        let createdAt = stringValue(annotations ?? [:], keys: ["org.opencontainers.image.created"])
-        let resolvedId = digest ?? reference
-        guard !resolvedId.isEmpty else { return nil }
-        return ContainerImage(
-            id: resolvedId,
-            name: name.isEmpty ? reference : name,
-            tag: tag,
-            sizeBytes: sizeBytes,
-            sizeText: sizeText,
-            createdAt: createdAt
-        )
-    }
-
-    func splitReference(_ reference: String) -> (name: String, tag: String?) {
-        guard !reference.isEmpty else { return ("", nil) }
-        let parts = reference.split(separator: ":")
-        if parts.count >= 2, let last = parts.last {
-            let name = parts.dropLast().joined(separator: ":")
-            return (name, String(last))
-        }
-        return (reference, nil)
-    }
-
-    func stringValue(_ dict: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            if let value = dict[key] as? String {
-                return value
-            }
-            if let value = dict[key] as? NSNumber {
-                return value.stringValue
-            }
-        }
-        return nil
-    }
-
-    func intValue(_ dict: [String: Any], keys: [String]) -> Int64? {
-        for key in keys {
-            if let value = dict[key] as? NSNumber {
-                return value.int64Value
-            }
-            if let value = dict[key] as? String, let parsed = Int64(value) {
-                return parsed
-            }
-        }
-        return nil
+        CLIParsers.parseImageList(output)
     }
 
     static func parseRegistryHosts(_ output: String) -> [String] {
-        output
-            .split(whereSeparator: \.isNewline)
-            .compactMap { line -> String? in
-                let columns = line
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .split(whereSeparator: \.isWhitespace)
-                guard let firstColumn = columns.first else { return nil }
-                let host = String(firstColumn)
-                return host.lowercased() == "hostname" ? nil : host
-            }
-            .filter { !$0.isEmpty }
+        CLIParsers.parseRegistryHosts(output)
     }
 
     static func parseEditableSettings(_ raw: String) -> ContainerEditableSettings? {
-        guard let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []) else {
-            return nil
-        }
-
-        let root: [String: Any]
-        if let array = json as? [[String: Any]], let first = array.first {
-            root = first
-        } else if let object = json as? [String: Any] {
-            root = object
-        } else {
-            return nil
-        }
-
-        let config = root["configuration"] as? [String: Any] ?? [:]
-        let imageDict = config["image"] as? [String: Any] ?? [:]
-        let initProcess = config["initProcess"] as? [String: Any] ?? [:]
-        let networks = root["networks"] as? [[String: Any]] ?? []
-        let configNetworks = config["networks"] as? [[String: Any]] ?? []
-        let sockets = config["publishedSockets"] as? [[String: Any]] ?? []
-        let publishedPorts = config["publishedPorts"] as? [[String: Any]] ?? []
-        let mounts = config["mounts"] as? [[String: Any]] ?? []
-
-        let image = stringIn(imageDict, keys: ["reference"]) ?? stringIn(root, keys: ["image"]) ?? ""
-        let rawName = stringIn(config, keys: ["hostname"])
-            ?? stringIn(networks.first ?? [:], keys: ["hostname"])
-            ?? stringIn(configNetworks.first?["options"] as? [String: Any] ?? [:], keys: ["hostname"])
-            ?? stringIn(config, keys: ["id"])
-            ?? ""
-        let name = normalizedContainerName(rawName)
-
-        var ports = sockets.compactMap { socket -> String? in
-            guard let host = intIn(socket, keys: ["hostPort"]),
-                  let container = intIn(socket, keys: ["containerPort"]) else {
-                return nil
-            }
-            return "\(host):\(container)"
-        }
-        ports += publishedPorts.compactMap { port -> String? in
-            guard let host = intIn(port, keys: ["hostPort"]),
-                  let container = intIn(port, keys: ["containerPort"]) else {
-                return nil
-            }
-            return "\(host):\(container)"
-        }
-        ports = Array(Set(ports)).sorted()
-
-        let volumes = mounts.compactMap { mount -> String? in
-            guard let source = stringIn(mount, keys: ["source"]),
-                  let destination = stringIn(mount, keys: ["destination"]) else {
-                return nil
-            }
-            return "\(source):\(destination)"
-        }
-
-        return ContainerEditableSettings(
-            image: image,
-            name: name,
-            ports: ports,
-            volumes: volumes,
-            environment: stringArrayIn(initProcess, keys: ["environment"])
-        )
-    }
-
-    static func stringIn(_ dict: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            if let value = dict[key] as? String, !value.isEmpty {
-                return value
-            }
-            if let value = dict[key] as? NSNumber {
-                return value.stringValue
-            }
-        }
-        return nil
-    }
-
-    static func intIn(_ dict: [String: Any], keys: [String]) -> Int? {
-        for key in keys {
-            if let value = dict[key] as? Int {
-                return value
-            }
-            if let value = dict[key] as? NSNumber {
-                return value.intValue
-            }
-            if let value = dict[key] as? String, let parsed = Int(value) {
-                return parsed
-            }
-        }
-        return nil
-    }
-
-    static func stringArrayIn(_ dict: [String: Any], keys: [String]) -> [String] {
-        for key in keys {
-            if let value = dict[key] as? [String] {
-                return value
-            }
-        }
-        return []
+        CLIParsers.parseEditableSettings(raw)
     }
 
     static func normalizedContainerName(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasSuffix("."), let first = trimmed.split(separator: ".").first else {
-            return trimmed
-        }
-        return String(first)
+        CLIParsers.normalizedContainerName(raw)
     }
 }
 

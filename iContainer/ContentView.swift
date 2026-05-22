@@ -70,6 +70,28 @@ struct ContentView: View {
     @State private var isLoadingContainerEditSettings = false
     @State private var isSavingContainerEdit = false
     @State private var selection: SidebarSelection?
+    @State private var sidebarSearchQuery: String = ""
+
+    /// Containers filtered by the sidebar search query (case-insensitive match
+    /// on name and image reference). An empty query returns all containers.
+    private var filteredContainers: [Container] {
+        let query = sidebarSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return containerManager.containers }
+        return containerManager.containers.filter { container in
+            container.name.localizedCaseInsensitiveContains(query)
+                || (container.image?.localizedCaseInsensitiveContains(query) ?? false)
+        }
+    }
+
+    /// Images filtered by the sidebar search query (case-insensitive match on
+    /// the full reference `name:tag`). An empty query returns all images.
+    private var filteredImages: [ContainerImage] {
+        let query = sidebarSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return containerManager.images }
+        return containerManager.images.filter { image in
+            image.reference.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         Group {
@@ -162,7 +184,7 @@ struct ContentView: View {
             }
             Section {
                 DisclosureGroup("Containers", isExpanded: $isContainersExpanded) {
-                    ForEach(containerManager.containers) { container in
+                    ForEach(filteredContainers) { container in
                         NavigationLink(value: SidebarSelection.container(ContainerNavigationTarget(id: container.id, tab: 0))) {
                             ContainerRowView(
                                 container: container,
@@ -175,13 +197,23 @@ struct ContentView: View {
                             )
                         }
                     }
+                    if filteredContainers.isEmpty && !sidebarSearchQuery.isEmpty {
+                        Text("No matching containers")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Section {
                 DisclosureGroup(isExpanded: $isImagesExpanded) {
                     if serviceManager.isServiceRunning {
-                        ForEach(containerManager.images) { image in
+                        ForEach(filteredImages) { image in
                             ImageRowView(image: image)
+                        }
+                        if filteredImages.isEmpty && !sidebarSearchQuery.isEmpty {
+                            Text("No matching images")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     } else {
                         EmptyView()
@@ -211,6 +243,22 @@ struct ContentView: View {
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
         .navigationTitle("iContainer")
+        // The search field only makes sense when the service is running:
+        // when it's stopped both containers and images are empty, so a
+        // filter would just dangle next to a blank sidebar. We also reset
+        // any leftover query so the next session starts clean.
+        .applyIf(serviceManager.isServiceRunning) { view in
+            view.searchable(
+                text: $sidebarSearchQuery,
+                placement: .sidebar,
+                prompt: "Filter containers and images"
+            )
+        }
+        .onChange(of: serviceManager.isServiceRunning) { _, isRunning in
+            if !isRunning {
+                sidebarSearchQuery = ""
+            }
+        }
         .toolbar { addToolbar }
         .alert("Operation Failed", isPresented: errorAlertBinding) {
             if shouldShowRegistryLoginActions {
@@ -1070,678 +1118,6 @@ struct ContentView: View {
     }
 }
 
-private struct WelcomeDashboardView: View {
-    let containers: [Container]
-    let imageCount: Int
-    let isServiceRunning: Bool
-    let onCreateContainer: () -> Void
-    let onPullImage: () -> Void
-    let onShowService: () -> Void
-    let onSelectContainer: (Container) -> Void
-
-    private var runningContainers: [Container] {
-        containers.filter { $0.status == .running }
-    }
-
-    private var stoppedContainers: [Container] {
-        containers.filter { $0.status == .stopped }
-    }
-
-    private var previewContainers: [Container] {
-        (runningContainers + stoppedContainers).prefix(5).map { $0 }
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                metrics
-                actions
-                containerPreview
-            }
-            .frame(maxWidth: 760, alignment: .leading)
-            .padding(.horizontal, 44)
-            .padding(.vertical, 40)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
-            Image("LogoHome")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 86, height: 86)
-                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("iContainer")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(isServiceRunning ? Color.green : Color.red)
-                        .brightness(isServiceRunning ? 0.15 : 0.05)
-                        .frame(width: 10, height: 10)
-                    Text("Apple container service")
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                }
-                Text(AppVersion.displayString)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
-    private var metrics: some View {
-        HStack(spacing: 12) {
-            WelcomeMetricTile(title: "Containers", value: containers.count, systemImage: "shippingbox")
-            WelcomeMetricTile(title: "Running", value: runningContainers.count, systemImage: "play.circle")
-            WelcomeMetricTile(title: "Stopped", value: stoppedContainers.count, systemImage: "stop.circle")
-            WelcomeMetricTile(title: "Images", value: imageCount, systemImage: "square.stack.3d.up")
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 10) {
-            Button(action: onCreateContainer) {
-                Label("Create Container", systemImage: "plus")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!isServiceRunning)
-
-            Button(action: onPullImage) {
-                Label("Pull Image", systemImage: "square.and.arrow.down")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(!isServiceRunning)
-
-            if isServiceRunning {
-                Button(action: onShowService) {
-                    Label("Apple container service details", systemImage: "server.rack")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var containerPreview: some View {
-        if previewContainers.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("No containers yet", systemImage: "shippingbox")
-                    .font(.headline)
-                Text(isServiceRunning ? "Create a container or pull an image to start." : "Start the container service to create and manage containers.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Available Containers")
-                    .font(.headline)
-
-                VStack(spacing: 0) {
-                    ForEach(previewContainers) { container in
-                        Button {
-                            onSelectContainer(container)
-                        } label: {
-                            WelcomeContainerRow(container: container)
-                        }
-                        .buttonStyle(.plain)
-
-                        if container.id != previewContainers.last?.id {
-                            Divider()
-                                .padding(.leading, 28)
-                        }
-                    }
-                }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-            }
-        }
-    }
-}
-
-private struct WelcomeMetricTile: View {
-    let title: String
-    let value: Int
-    let systemImage: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundColor(.secondary)
-            Text("\(value)")
-                .font(.title2.monospacedDigit().weight(.semibold))
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct WelcomeContainerRow: View {
-    let container: Container
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(container.status == .running ? Color.green : Color.red)
-                .brightness(container.status == .running ? 0.15 : 0.05)
-                .frame(width: 10, height: 10)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(container.name)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                Text(container.image ?? "No image")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if let ipAddress = container.ipAddress {
-                Text(ipAddress)
-                    .font(.caption.monospaced())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.secondary)
-        }
-        .contentShape(Rectangle())
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-}
-
-struct ServiceStatusView: View {
-    @EnvironmentObject var serviceManager: ServiceManager
-    @State private var isProcessing = false
-    
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(serviceManager.isServiceRunning ? Color.green : Color.red)
-                .brightness(serviceManager.isServiceRunning ? 0.15 : 0.05)
-                .frame(width: 14, height: 14)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Container service")
-                    .font(.headline)
-                Text(serviceManager.serviceStatus)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            
-            Button(action: {
-                isProcessing = true
-                Task {
-                    if serviceManager.isServiceRunning {
-                        await serviceManager.stopService()
-                    } else {
-                        await serviceManager.startService()
-                    }
-                    isProcessing = false
-                }
-            }) {
-                if isProcessing {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: serviceManager.isServiceRunning ? "stop.fill" : "play.fill")
-                        .foregroundColor(serviceManager.isServiceRunning ? .red : .green)
-                        .brightness(serviceManager.isServiceRunning ? 0.05 : 0.15)
-                        .frame(width: 16, height: 16)
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(isProcessing)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct PathPickerRow: View {
-    let title: String
-    let placeholder: String
-    @Binding var path: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            HStack(spacing: 8) {
-                TextField(placeholder, text: $path)
-                    .textFieldStyle(.roundedBorder)
-                Button(action: action) {
-                    Image(systemName: systemImage)
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.bordered)
-                .help("Choose \(title.lowercased())")
-            }
-        }
-    }
-}
-
-private struct MappingPairsEditor: View {
-    let title: String
-    @Binding var mappingsText: String
-    @Binding var firstValue: String
-    @Binding var secondValue: String
-    let isLoading: Bool
-    let emptyText: String
-    let firstTitle: String
-    let secondTitle: String
-    let firstPlaceholder: String
-    let secondPlaceholder: String
-    let formatText: String
-    let iconName: String
-    let addAction: () -> Void
-    let removeAction: (String) -> Void
-    let browseFirstAction: (() -> Void)?
-
-    private var mappings: [String] {
-        mappingsText
-            .replacingOccurrences(of: "\n", with: ",")
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: title, count: mappings.count)
-
-            if mappings.isEmpty {
-                Text(isLoading ? "Loading..." : emptyText)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(mappings, id: \.self) { mapping in
-                        let pair = splitMapping(mapping)
-                        MappingRow(
-                            iconName: iconName,
-                            firstTitle: firstTitle,
-                            firstValue: pair.first,
-                            secondTitle: secondTitle,
-                            secondValue: pair.second,
-                            separator: ":",
-                            removeAction: { removeAction(mapping) }
-                        )
-                    }
-                }
-            }
-
-            HStack(alignment: .center, spacing: 10) {
-                TextField(firstPlaceholder, text: $firstValue)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                if let browseFirstAction {
-                    Button {
-                        browseFirstAction()
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Choose file or folder")
-                }
-                Text(":")
-                    .foregroundColor(.secondary)
-                TextField(secondPlaceholder, text: $secondValue)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                Button {
-                    addAction()
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.borderless)
-                .help("Add \(title.lowercased())")
-                .disabled(firstValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || secondValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-
-            Text(formatText)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    private func splitMapping(_ mapping: String) -> (first: String, second: String) {
-        let parts = mapping.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else {
-            return (mapping, "")
-        }
-        return (String(parts[0]), String(parts[1]))
-    }
-}
-
-private struct EnvironmentVariablesEditor: View {
-    @Binding var environmentText: String
-    @Binding var key: String
-    @Binding var value: String
-    let isLoading: Bool
-    let emptyText: String
-    let addAction: () -> Void
-    let removeAction: (String) -> Void
-
-    private var variables: [String] {
-        environmentText
-            .replacingOccurrences(of: "\n", with: ",")
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "Environment Variables", count: variables.count)
-
-            if variables.isEmpty {
-                Text(isLoading ? "Loading..." : emptyText)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(variables, id: \.self) { variable in
-                        let pair = splitVariable(variable)
-                        MappingRow(
-                            iconName: "textformat",
-                            firstTitle: "Variable",
-                            firstValue: pair.key,
-                            secondTitle: "Value",
-                            secondValue: pair.value,
-                            separator: "=",
-                            removeAction: { removeAction(variable) }
-                        )
-                    }
-                }
-            }
-
-            HStack(alignment: .center, spacing: 10) {
-                TextField("Variable", text: $key)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                Text("=")
-                    .foregroundColor(.secondary)
-                TextField("Value", text: $value)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity)
-                Button {
-                    addAction()
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 16, height: 16)
-                }
-                .buttonStyle(.borderless)
-                .help("Add environment variable")
-                .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-    }
-
-    private func splitVariable(_ variable: String) -> (key: String, value: String) {
-        let parts = variable.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else {
-            return (variable, "")
-        }
-        return (String(parts[0]), String(parts[1]))
-    }
-}
-
-private struct SectionHeader: View {
-    let title: String
-    let count: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.headline)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.12), in: Capsule())
-            }
-            Spacer()
-        }
-    }
-}
-
-private struct MappingRow: View {
-    let iconName: String
-    let firstTitle: String
-    let firstValue: String
-    let secondTitle: String
-    let secondValue: String
-    let separator: String
-    let removeAction: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: iconName)
-                .foregroundColor(.secondary)
-                .frame(width: 18, height: 18)
-                .padding(.top, 12)
-            MappingValueColumn(title: firstTitle, value: firstValue)
-            Text(separator)
-                .foregroundColor(.secondary)
-                .font(.callout.monospaced())
-                .padding(.top, 22)
-            MappingValueColumn(title: secondTitle, value: secondValue)
-            Button(action: removeAction) {
-                Image(systemName: "xmark.circle.fill")
-                    .frame(width: 16, height: 16)
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
-            .padding(.top, 12)
-            .help("Remove")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct MappingValueColumn: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-            Text(value.isEmpty ? "-" : value)
-                .font(.callout.monospaced())
-                .textSelection(.enabled)
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct WindowResizeConfigurator: NSViewRepresentable {
-    let minSize: CGSize
-    let shouldCenter: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        configure(from: view, context: context)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        configure(from: nsView, context: context)
-    }
-
-    private func configure(from view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.styleMask.insert(.resizable)
-            window.minSize = minSize
-            if shouldCenter && !context.coordinator.didCenter {
-                window.center()
-                context.coordinator.didCenter = true
-            }
-        }
-    }
-
-    final class Coordinator {
-        var didCenter = false
-    }
-}
-
-struct ContainerRowView: View {
-    let container: Container
-    let onNavigateToTab: (Int) -> Void
-    let onEditSettings: () -> Void
-    @EnvironmentObject var containerManager: ContainerizationWrapper
-    @State private var showingDeleteConfirmation = false
-    @State private var showingStopConfirmation = false
-    @State private var isDeleting = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Circle()
-                        .fill(container.status == .running ? Color.green : Color.red)
-                        .brightness(container.status == .running ? 0.15 : 0.05)
-                        .frame(width: 10, height: 10)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.9), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
-                    Text(container.name)
-                        .font(.headline)
-                }
-                HStack(spacing: 16) {
-                    if let image = container.image {
-                        Label(image, systemImage: "shippingbox")
-                            .font(.caption)
-                    }
-                    if let ip = container.ipAddress {
-                        Label(ip, systemImage: "network")
-                            .font(.caption)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            HStack(spacing: 12) {
-                ZStack {
-                    if isDeleting || containerManager.updatingContainerIDs.contains(container.id) {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        if container.status == .stopped {
-                            Button {
-                                Task {
-                                    await containerManager.startContainer(containerId: container.id)
-                                }
-                            } label: {
-                                Image(systemName: "play.fill")
-                                    .foregroundColor(.green)
-                                    .brightness(0.15)
-                                    .frame(width: 16, height: 16)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        } else {
-                            Button {
-                                showingStopConfirmation = true
-                            } label: {
-                                Image(systemName: "stop.fill")
-                                    .foregroundColor(.red)
-                                    .brightness(0.05)
-                                    .frame(width: 16, height: 16)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-                }
-                .frame(width: 60)
-            }
-        }
-        .padding(.vertical, 4)
-        .contextMenu {
-            ContainerActionsMenuItems(
-                container: container,
-                onNavigateToTab: onNavigateToTab,
-                onEditSettings: onEditSettings,
-                onRequestStop: {
-                    showingStopConfirmation = true
-                },
-                onDelete: {
-                    showingDeleteConfirmation = true
-                }
-            )
-        }
-        .confirmationDialog("Delete Container?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                isDeleting = true
-                Task {
-                    await containerManager.deleteContainer(containerId: container.id)
-                    isDeleting = false
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to delete the container \"\(container.name)\"? This action cannot be undone.")
-        }
-        .alert(isPresented: $showingStopConfirmation) {
-            Alert(
-                title: Text("Stop Container?"),
-                message: Text("Are you sure you want to stop the container \"\(container.name)\"?"),
-                primaryButton: .destructive(Text("Stop")) {
-                    Task {
-                        await containerManager.stopContainer(containerId: container.id)
-                    }
-                },
-                secondaryButton: .cancel()
-            )
-        }
-    }
-}
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {

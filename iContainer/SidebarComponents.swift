@@ -1,0 +1,184 @@
+import SwiftUI
+
+/// Sidebar-specific row views used by `ContentView`. Each row owns its
+/// own confirmation alerts and inline action buttons so the parent
+/// `List` can stay focused on selection and search.
+
+// MARK: - Service status row
+
+/// Top sidebar entry showing whether the Apple container service is up
+/// and exposing a start/stop button.
+struct ServiceStatusView: View {
+    @EnvironmentObject var serviceManager: ServiceManager
+    @State private var isProcessing = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(serviceManager.isServiceRunning ? Color.green : Color.red)
+                .brightness(serviceManager.isServiceRunning ? 0.15 : 0.05)
+                .frame(width: 14, height: 14)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Container service")
+                    .font(.headline)
+                Text(serviceManager.serviceStatus)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+
+            Button(action: {
+                isProcessing = true
+                Task {
+                    if serviceManager.isServiceRunning {
+                        await serviceManager.stopService()
+                    } else {
+                        await serviceManager.startService()
+                    }
+                    isProcessing = false
+                }
+            }) {
+                if isProcessing {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: serviceManager.isServiceRunning ? "stop.fill" : "play.fill")
+                        .foregroundColor(serviceManager.isServiceRunning ? .red : .green)
+                        .brightness(serviceManager.isServiceRunning ? 0.05 : 0.15)
+                        .frame(width: 16, height: 16)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isProcessing)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Container row
+
+/// One container in the sidebar. Renders the running/stopped indicator,
+/// image / IP labels, an inline start/stop button, plus the context-menu
+/// driven action set (`ContainerActionsMenuItems`).
+struct ContainerRowView: View {
+    let container: Container
+    let onNavigateToTab: (Int) -> Void
+    let onEditSettings: () -> Void
+    @EnvironmentObject var containerManager: ContainerizationWrapper
+    @State private var showingDeleteConfirmation = false
+    @State private var showingStopConfirmation = false
+    @State private var isDeleting = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Circle()
+                        .fill(container.status == .running ? Color.green : Color.red)
+                        .brightness(container.status == .running ? 0.15 : 0.05)
+                        .frame(width: 10, height: 10)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.15), radius: 1, x: 0, y: 0)
+                    Text(container.name)
+                        .font(.headline)
+                }
+                HStack(spacing: 16) {
+                    if let image = container.image {
+                        Label(image, systemImage: "shippingbox")
+                            .font(.caption)
+                    }
+                    if let ip = container.ipAddress {
+                        Label(ip, systemImage: "network")
+                            .font(.caption)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            HStack(spacing: 12) {
+                ZStack {
+                    if isDeleting || containerManager.updatingContainerIDs.contains(container.id) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        if container.status == .stopped {
+                            Button {
+                                Task {
+                                    await containerManager.startContainer(containerId: container.id)
+                                }
+                            } label: {
+                                Image(systemName: "play.fill")
+                                    .foregroundColor(.green)
+                                    .brightness(0.15)
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        } else {
+                            Button {
+                                showingStopConfirmation = true
+                            } label: {
+                                Image(systemName: "stop.fill")
+                                    .foregroundColor(.red)
+                                    .brightness(0.05)
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+                .frame(width: 60)
+            }
+        }
+        .padding(.vertical, 4)
+        .contextMenu {
+            ContainerActionsMenuItems(
+                container: container,
+                onNavigateToTab: onNavigateToTab,
+                onEditSettings: onEditSettings,
+                onRequestStop: {
+                    showingStopConfirmation = true
+                },
+                onDelete: {
+                    showingDeleteConfirmation = true
+                }
+            )
+        }
+        .confirmationDialog("Delete Container?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                isDeleting = true
+                Task {
+                    await containerManager.deleteContainer(containerId: container.id)
+                    isDeleting = false
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete the container \"\(container.name)\"? This action cannot be undone.")
+        }
+        .alert(isPresented: $showingStopConfirmation) {
+            Alert(
+                title: Text("Stop Container?"),
+                message: Text("Are you sure you want to stop the container \"\(container.name)\"?"),
+                primaryButton: .destructive(Text("Stop")) {
+                    Task {
+                        await containerManager.stopContainer(containerId: container.id)
+                    }
+                },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+}
