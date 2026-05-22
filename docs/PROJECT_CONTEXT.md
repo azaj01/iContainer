@@ -57,9 +57,9 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 
 ### Tests
 - `iContainerTests/CLIParsers*Tests.swift`: ~45 XCTest cases that cover
-  the parser surface end-to-end. The test target is not yet declared in
-  the pbxproj; `iContainerTests/README.md` documents the one-time Xcode
-  UI step to register it.
+  the parser surface end-to-end. The test target is declared in the
+  pbxproj as a file-system synchronised group, so any new `*.swift`
+  file in `iContainerTests/` is picked up automatically.
 
 ## Current UX Rules (Important)
 - The app shows a dependency error screen if CLI `container` is not available.
@@ -137,9 +137,9 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   (mostly `CLIParsers`). Anything that touches `Process`, `Pipe`, the
   filesystem, or `MainActor`-isolated state belongs in the app target,
   not in tests.
-- The test target is added via Xcode (`File → New → Target → macOS Unit
-  Testing Bundle`), pointing at the existing `iContainerTests/` folder
-  as a file-system synchronized group. See `iContainerTests/README.md`.
+- The test target is already wired in `iContainer.xcodeproj` as a
+  file-system synchronised group; new test files in `iContainerTests/`
+  are picked up automatically. See `iContainerTests/README.md`.
 
 ## Registry Auth Notes
 - Current login flow tries Docker Hub aliases:

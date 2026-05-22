@@ -14,11 +14,13 @@ spawning a process, touching the network, or hitting the filesystem.
 
 About **45 test cases** in total.
 
-## One-time setup (~30 seconds)
+## Setup
 
-The `iContainer.xcodeproj` does not yet declare a unit test target — the
-`pbxproj` for Xcode 26 (`objectVersion = 77`) is sensitive to manual edits,
-so the target is best created from the Xcode UI:
+The test target is already declared in `iContainer.xcodeproj` and uses
+a file-system synchronised group rooted at this folder, so any `*.swift`
+file dropped in here is picked up automatically — no Xcode edits needed.
+
+If you ever recreate the target from scratch (e.g. on a fresh project):
 
 1. Open `iContainer.xcodeproj` in Xcode.
 2. **File → New → Target…** (or `⌘⇧T` on the project navigator).
@@ -26,13 +28,22 @@ so the target is best created from the Xcode UI:
 4. Set **Product Name**: `iContainerTests`.
 5. Set **Target to be Tested**: `iContainer`.
 6. **Language**: Swift. **Project**: iContainer. Click Finish.
-7. Xcode will auto-create an `iContainerTests/` folder with a sample test —
-   delete the auto-generated `iContainerTests.swift` file (the real tests
-   are already in this folder and will be picked up by the file-system
-   synchronised group).
-8. In the test target's **Build Settings**, make sure
-   **Default Actor Isolation** is set to `MainActor` (matches the app
-   target — already the project default).
+7. Delete the auto-generated `iContainerTests.swift` placeholder
+   (Xcode creates it with Swift Testing; this project uses XCTest).
+8. In the test target's **Build Settings**, ensure **Default Actor
+   Isolation** is set to `MainActor` (matches the app target).
+
+### Xcode 26 logging quirk
+
+On first run, Xcode may surface:
+
+> Logging Error: Failed to initialize logging system due to time out.
+
+The tests still execute and pass — it's a known logging glitch in
+Xcode 26. To silence it, edit the `iContainer` scheme:
+
+**Product → Scheme → Edit Scheme… → Test → Arguments → Environment
+Variables**, add `IDEPreferLogStreaming = YES`.
 
 ## Running the tests
 

@@ -14,8 +14,19 @@
 		03D40FC52F5F0DBD006C576F /* ImagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D40FC42F5F0DBD006C576F /* ImagesView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0380FB5B2FC0A8BF00FFA823 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0363BE792E21BAAF00FE2CE1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0363BE802E21BAAF00FE2CE1;
+			remoteInfo = iContainer;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0363BE812E21BAAF00FE2CE1 /* iContainer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iContainer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0380FB572FC0A8BF00FFA823 /* iContainerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iContainerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		03D40FC22F5F0C75006C576F /* ContainerImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainerImage.swift; sourceTree = "<group>"; };
 		03D40FC42F5F0DBD006C576F /* ImagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -24,6 +35,11 @@
 		0363BE832E21BAAF00FE2CE1 /* iContainer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = iContainer;
+			sourceTree = "<group>";
+		};
+		0380FB582FC0A8BF00FFA823 /* iContainerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = iContainerTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -39,6 +55,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0380FB542FC0A8BF00FFA823 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -46,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				0363BE832E21BAAF00FE2CE1 /* iContainer */,
+				0380FB582FC0A8BF00FFA823 /* iContainerTests */,
 				0363BE822E21BAAF00FE2CE1 /* Products */,
 				03D40FC22F5F0C75006C576F /* ContainerImage.swift */,
 				03D40FC42F5F0DBD006C576F /* ImagesView.swift */,
@@ -56,6 +80,7 @@
 			isa = PBXGroup;
 			children = (
 				0363BE812E21BAAF00FE2CE1 /* iContainer.app */,
+				0380FB572FC0A8BF00FFA823 /* iContainerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -88,6 +113,29 @@
 			productReference = 0363BE812E21BAAF00FE2CE1 /* iContainer.app */;
 			productType = "com.apple.product-type.application";
 		};
+		0380FB562FC0A8BF00FFA823 /* iContainerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0380FB5F2FC0A8BF00FFA823 /* Build configuration list for PBXNativeTarget "iContainerTests" */;
+			buildPhases = (
+				0380FB532FC0A8BF00FFA823 /* Sources */,
+				0380FB542FC0A8BF00FFA823 /* Frameworks */,
+				0380FB552FC0A8BF00FFA823 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0380FB5C2FC0A8BF00FFA823 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				0380FB582FC0A8BF00FFA823 /* iContainerTests */,
+			);
+			name = iContainerTests;
+			packageProductDependencies = (
+			);
+			productName = iContainerTests;
+			productReference = 0380FB572FC0A8BF00FFA823 /* iContainerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -95,11 +143,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2600;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
 					0363BE802E21BAAF00FE2CE1 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					0380FB562FC0A8BF00FFA823 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 0363BE802E21BAAF00FE2CE1;
 					};
 				};
 			};
@@ -121,12 +173,20 @@
 			projectRoot = "";
 			targets = (
 				0363BE802E21BAAF00FE2CE1 /* iContainer */,
+				0380FB562FC0A8BF00FFA823 /* iContainerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0363BE7F2E21BAAF00FE2CE1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0380FB552FC0A8BF00FFA823 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -145,7 +205,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0380FB532FC0A8BF00FFA823 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0380FB5C2FC0A8BF00FFA823 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0363BE802E21BAAF00FE2CE1 /* iContainer */;
+			targetProxy = 0380FB5B2FC0A8BF00FFA823 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0363BE8A2E21BAB000FE2CE1 /* Debug */ = {
@@ -338,6 +413,48 @@
 			};
 			name = Release;
 		};
+		0380FB5D2FC0A8BF00FFA823 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6A9C6AUKJ;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nicoemanuelli.iContainerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iContainer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iContainer";
+			};
+			name = Debug;
+		};
+		0380FB5E2FC0A8BF00FFA823 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6A9C6AUKJ;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nicoemanuelli.iContainerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/iContainer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/iContainer";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -355,6 +472,15 @@
 			buildConfigurations = (
 				0363BE8D2E21BAB000FE2CE1 /* Debug */,
 				0363BE8E2E21BAB000FE2CE1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0380FB5F2FC0A8BF00FFA823 /* Build configuration list for PBXNativeTarget "iContainerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0380FB5D2FC0A8BF00FFA823 /* Debug */,
+				0380FB5E2FC0A8BF00FFA823 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
