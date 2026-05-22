@@ -31,11 +31,14 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
   - show image rows
   - show pull-image icon
   - show add-container (`+`) icon
+  - show sidebar search field
 - When container system service is **stopped**:
   - keep `Images` section visible
   - hide image rows
   - hide pull-image icon
   - hide add-container (`+`) icon
+  - hide the sidebar search field (both lists are empty in this state)
+  - clear any leftover search query so a new session starts unfiltered
 
 ## Containers List Behavior
 - Sort order must remain:
@@ -43,6 +46,12 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
   2. stopped containers
   3. alphabetical by name within each status group
 - Status should be immediately recognizable (green/red indicator pattern is acceptable).
+- When the sidebar search field is non-empty, both `Containers` and
+  `Images` sections show only matches; an explicit "No matching …"
+  caption is shown inside the section when the filter zeroes it out.
+- Search is case-insensitive and matches on container name + image
+  reference for containers, and on the full `name:tag` reference for
+  images.
 
 ## Container Actions
 - `Exec` flow is deprecated in UI and must not be reintroduced casually.

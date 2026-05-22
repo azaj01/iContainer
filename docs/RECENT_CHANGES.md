@@ -5,6 +5,41 @@ Short, practical log of recent product/code decisions discussed in chat and impl
 
 ## Timeline (latest first)
 
+### 2026-05-22 — Release 1.1.0
+- Added sidebar search/filter:
+  - case-insensitive filter on container name, container image, and
+    image reference
+  - shown only when the container service is running; the query is
+    cleared automatically when the service stops
+  - empty-state "No matching …" caption inside each section when the
+    filter zeroes it out
+- Extracted CLI parsing into `CLIParsers.swift`:
+  - new `nonisolated`, side-effect free namespace covering image list,
+    registry hosts, inspect → editable settings, service status, log
+    truncation, and error classifiers
+  - `ContainerizationWrapper` and `ServiceManager` now forward to this
+    namespace instead of owning parsing logic
+  - fixed `splitReference` so `localhost:5000/myapp` is no longer
+    parsed as `("localhost", "5000/myapp")`
+- Added `iContainerTests/` with ~45 XCTest cases on the new parser layer.
+  The test bundle still has to be wired into Xcode via the UI; see
+  `iContainerTests/README.md`.
+- Split `ContentView.swift` (1752 → 1117 lines) into:
+  - `WelcomeDashboardView.swift`
+  - `SheetEditors.swift`
+  - `SidebarComponents.swift`
+  - `WindowResizeConfigurator.swift`
+- Split `ContainerDetailView.swift` (1660 → 141 lines, now a thin
+  TabView host) into one file per tab plus shared chrome:
+  - `ContainerInfoView.swift`
+  - `ContainerStatsView.swift`
+  - `ContainerShellView.swift`
+  - `ContainerLogsView.swift`
+  - `ContainerInspectFallback.swift`
+  - `DetailRowComponents.swift`
+- Added `View.applyIf` extension (`ViewExtensions.swift`) for
+  conditional modifier chains.
+
 ### 2026-05-16
 - Added Apple Container System Service logs:
   - service detail page now has `Info` and `Logs` tabs

@@ -4,12 +4,62 @@
 iContainer is a macOS SwiftUI app that manages Apple Container workloads through the `container` CLI.
 
 ## Main Components
+
+### Entry point and shell
 - `iContainer/iContainerApp.swift`: app entry point, injects shared managers.
-- `iContainer/ContentView.swift`: main sidebar + detail navigation.
-- `iContainer/ContainerizationWrapper.swift`: async wrapper around `container` commands (containers/images/logs/stats/exec support).
-- `iContainer/ServiceManager.swift`: polling and parsing of container system service status/details.
-- `iContainer/ContainerDetailView.swift`: per-container detail tabs (`Info`, `Stats`, `Shell`, `Logs`).
-- `iContainer/ServiceDetailView.swift`: system service detail page.
+- `iContainer/ContentView.swift`: sidebar + detail navigation host, owns the
+  create/edit/registry-login sheet state.
+- `iContainer/AppNavigation.swift`: navigation state shared across menu bar
+  extras and main window.
+
+### Sidebar and welcome screen
+- `iContainer/SidebarComponents.swift`: `ServiceStatusView` and
+  `ContainerRowView` rows used in the sidebar list.
+- `iContainer/WelcomeDashboardView.swift`: home screen shown when nothing
+  is selected (metrics + recent containers preview).
+- `iContainer/SheetEditors.swift`: shared editors used by the create and
+  edit sheets (`MappingPairsEditor`, `EnvironmentVariablesEditor`,
+  `MappingRow`, `PathPickerRow`, etc).
+- `iContainer/WindowResizeConfigurator.swift`: `NSViewRepresentable` that
+  makes sheets resizable with a minimum size.
+- `iContainer/ViewExtensions.swift`: `View.applyIf` for conditional
+  modifier chains.
+
+### Service layer
+- `iContainer/ContainerizationWrapper.swift`: async wrapper around the
+  `container` CLI (containers/images/logs/stats/exec/registry). Pure
+  parsing is delegated to `CLIParsers`.
+- `iContainer/ServiceManager.swift`: polls the container system service,
+  tracks status and follows logs. Pure parsing is delegated to
+  `CLIParsers`.
+- `iContainer/CLIParsers.swift`: single namespace holding every pure
+  parser used to read `container` CLI output. Side-effect free and
+  exhaustively unit-tested.
+
+### Per-container detail
+- `iContainer/ContainerDetailView.swift`: thin TabView host for the
+  Info / Stats / Shell / Logs tabs.
+- `iContainer/ContainerInfoView.swift`: Info tab, including port links
+  and mount links.
+- `iContainer/ContainerStatsView.swift`: Stats tab, including chart
+  panel and the stats parser.
+- `iContainer/ContainerShellView.swift`: Shell tab plus the persistent
+  `ContainerShellSession` per container.
+- `iContainer/ContainerLogsView.swift`: Logs tab with delta polling.
+- `iContainer/ContainerInspectFallback.swift`: untyped-dictionary inspect
+  parser for fields that the typed `Decodable` does not cover.
+- `iContainer/DetailRowComponents.swift`: `DetailSection`, `DetailRow`,
+  `StatusBadge`, `InfoTextStyle`. Shared chrome across the four tabs.
+
+### System service detail
+- `iContainer/ServiceDetailView.swift`: system service detail page with
+  Info and Logs tabs.
+
+### Tests
+- `iContainerTests/CLIParsers*Tests.swift`: ~45 XCTest cases that cover
+  the parser surface end-to-end. The test target is not yet declared in
+  the pbxproj; `iContainerTests/README.md` documents the one-time Xcode
+  UI step to register it.
 
 ## Current UX Rules (Important)
 - The app shows a dependency error screen if CLI `container` is not available.
@@ -22,6 +72,13 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   - image rows are shown only when service is running
   - pull-image icon is hidden when service is stopped
 - add-container (`+`) toolbar icon is hidden when service is stopped
+- Sidebar search field:
+  - case-insensitive filter on container name + image reference and on
+    image reference
+  - shown only when the container service is running (otherwise both
+    lists are empty and the field would dangle next to a blank sidebar)
+  - the query is cleared automatically when the service stops, so the
+    next session starts unfiltered
 - `Exec` feature has been removed from UI (replaced by persistent shell workflow).
 - Registry auth UX:
   - auth errors (`401`, `unauthorized`, missing credentials) are detected and shown with guided actions
@@ -64,6 +121,25 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - During manual relaunch, this sequence is reliable:
   - `pkill -x iContainer || true`
   - `open /Users/nico/Library/Developer/Xcode/DerivedData/iContainer-fpbjeiozuugbpjglzrjgziqvmlne/Build/Products/Debug/iContainer.app`
+
+## Parsing Layer
+- All parsing of `container` CLI output lives in `CLIParsers.swift` and
+  is `nonisolated`, side-effect free, and unit-testable.
+- `ContainerizationWrapper` and `ServiceManager` keep their old static
+  parser entry points as thin forwarders to `CLIParsers` so the rest of
+  the codebase is unchanged.
+- Registry references with a port (e.g. `localhost:5000/myapp`) are
+  parsed correctly: the colon in the port is preserved instead of being
+  treated as a tag separator.
+
+## Tests
+- Unit tests live in `iContainerTests/` and only cover pure types
+  (mostly `CLIParsers`). Anything that touches `Process`, `Pipe`, the
+  filesystem, or `MainActor`-isolated state belongs in the app target,
+  not in tests.
+- The test target is added via Xcode (`File → New → Target → macOS Unit
+  Testing Bundle`), pointing at the existing `iContainerTests/` folder
+  as a file-system synchronized group. See `iContainerTests/README.md`.
 
 ## Registry Auth Notes
 - Current login flow tries Docker Hub aliases:
