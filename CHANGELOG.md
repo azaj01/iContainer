@@ -7,6 +7,14 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-23
+
+### Added
+- "Settings…" entry in the menu bar extra (`MenuBarContainersView`),
+  placed above the existing "Quit" item. Opens the same `Window(id:
+  "settings")` scene as ⌘, and the App ▸ Settings… menu item, via
+  `@Environment(\.openWindow)` and `AppNavigation.activateApp()`.
+
 ## [1.3.0] - 2026-05-23
 
 ### Added

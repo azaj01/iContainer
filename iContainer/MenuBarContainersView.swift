@@ -64,6 +64,12 @@ struct MenuBarContainersView: View {
             Divider()
 
             Button {
+                openSettingsWindow()
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+
+            Button {
                 NSApp.terminate(nil)
             } label: {
                 Label("Quit iContainer", systemImage: "power")
@@ -141,6 +147,11 @@ struct MenuBarContainersView: View {
 
     private func openMainWindow() {
         openWindow(id: "main")
+        appNavigation.activateApp()
+    }
+
+    private func openSettingsWindow() {
+        openWindow(id: "settings")
         appNavigation.activateApp()
     }
 }

@@ -5,6 +5,13 @@ Short, practical log of recent product/code decisions discussed in chat and impl
 
 ## Timeline (latest first)
 
+### 2026-05-23 — Release 1.3.1
+- Added a `Settings…` item to the menu bar extra
+  (`MenuBarContainersView`), placed above `Quit`. Routes through
+  `@Environment(\.openWindow)` and `AppNavigation.activateApp()` to
+  open the same `Window(id: "settings")` scene used by ⌘, and the App
+  menu, so all three entry points stay in sync.
+
 ### 2026-05-23 — Release 1.3.0 (Settings, notifications, polish)
 - New Settings system (`Settings.swift`, `SettingsView.swift`):
   - dedicated `Window("Settings", id: "settings")` scene (workaround
