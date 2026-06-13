@@ -84,6 +84,9 @@ struct ContentView: View {
     @State private var sidebarSearchQuery: String = ""
     @State private var containerStatusFilter: ContainerStatusFilter = .all
     @State private var showingContainerFilterPopover = false
+    // Mirrors `SettingsManager.sidebarTinted` via its UserDefaults key, so
+    // toggling the preference live-updates the sidebar wash in both windows.
+    @AppStorage(SettingsManager.Keys.sidebarTinted) private var sidebarTinted = SettingsManager.Defaults.sidebarTinted
 
     // Confirmation state for Stop / Delete triggered by the Container
     // menu commands. The sidebar row owns its own equivalent dialogs for
@@ -479,6 +482,19 @@ struct ContentView: View {
         .onChange(of: serviceManager.isServiceRunning) { _, isRunning in
             if !isRunning {
                 sidebarSearchQuery = ""
+            }
+        }
+        // A flat wash of brand purple across the whole sidebar (opt-out via
+        // Settings ▸ Appearance). Applied after `.searchable` so it spans
+        // the entire column (search field included) and with hit-testing
+        // off so everything stays interactive; `ignoresSafeArea` lets it
+        // reach under the toolbar.
+        .overlay {
+            if sidebarTinted {
+                Color.accentColor
+                    .opacity(0.12)
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
             }
         }
         .toolbar { addToolbar }

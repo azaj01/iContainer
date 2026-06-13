@@ -103,6 +103,7 @@ struct SettingsView: View {
                     .frame(width: 260)
                 }
                 Toggle("Show icon in menu bar", isOn: $settings.showMenuBarIcon)
+                Toggle("Tint the sidebar with the accent color", isOn: $settings.sidebarTinted)
             }
 
             groupBox("Startup") {

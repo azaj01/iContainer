@@ -177,9 +177,9 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   accessors on `SettingsManager` — never reach into the singleton from
   a non-MainActor context.
 - Preference inventory (default in parentheses):
-  - **General**: theme (System), menu bar icon (on), launch at login
-    (off, via `SMAppService.mainApp`), auto-start container service on
-    app open (off), quit behavior (Ask).
+  - **General**: theme (System), menu bar icon (on), sidebar accent
+    tint (on), launch at login (off, via `SMAppService.mainApp`),
+    auto-start container service on app open (off), quit behavior (Ask).
   - **Notifications**: container stopped (on), action failed (on).
   - **Behavior**: refresh interval seconds (5; allowed values are
     Manual / 2 / 5 / 10), confirm Stop (on), confirm Delete (on),

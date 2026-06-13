@@ -7,6 +7,17 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-06-13
+
+### Added
+- "Tint the sidebar with the accent color" appearance preference
+  (General ▸ Appearance, default on). A flat accent wash is laid over
+  the whole sidebar — search field included — via a non-hit-testing
+  overlay applied after `.searchable`; turning it off restores the plain
+  system sidebar material. Backed by the `settings.sidebarTinted`
+  preference, mirrored into `ContentView` through `@AppStorage` so the
+  toggle updates the sidebar live.
+
 ## [1.5.0] - 2026-06-13
 
 ### Added

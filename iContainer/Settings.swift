@@ -120,6 +120,7 @@ final class SettingsManager: ObservableObject {
         static let defaultRegistry = "settings.defaultRegistry"
         static let quitBehavior = "settings.quitBehavior"
         static let hideXPCNoiseInLogs = "settings.hideXPCNoiseInLogs"
+        static let sidebarTinted = "settings.sidebarTinted"
     }
 
     nonisolated enum Defaults {
@@ -141,6 +142,7 @@ final class SettingsManager: ObservableObject {
         static let defaultRegistry = "registry-1.docker.io"
         static let quitBehavior: QuitBehavior = .ask
         static let hideXPCNoiseInLogs = true
+        static let sidebarTinted = true
     }
 
     // MARK: Published preferences
@@ -227,6 +229,12 @@ final class SettingsManager: ObservableObject {
         didSet { store.set(hideXPCNoiseInLogs, forKey: Keys.hideXPCNoiseInLogs) }
     }
 
+    /// When off, the sidebar drops its flat accent-color wash and stays
+    /// fully transparent (the plain system sidebar material).
+    @Published var sidebarTinted: Bool {
+        didSet { store.set(sidebarTinted, forKey: Keys.sidebarTinted) }
+    }
+
     private let store: UserDefaults
 
     init(store: UserDefaults = .standard) {
@@ -259,6 +267,7 @@ final class SettingsManager: ObservableObject {
         _defaultRegistry = Published(initialValue: store.string(forKey: Keys.defaultRegistry) ?? Defaults.defaultRegistry)
         _quitBehavior = Published(initialValue: (store.string(forKey: Keys.quitBehavior).flatMap(QuitBehavior.init(rawValue:))) ?? Defaults.quitBehavior)
         _hideXPCNoiseInLogs = Published(initialValue: store.object(forKey: Keys.hideXPCNoiseInLogs) as? Bool ?? Defaults.hideXPCNoiseInLogs)
+        _sidebarTinted = Published(initialValue: store.object(forKey: Keys.sidebarTinted) as? Bool ?? Defaults.sidebarTinted)
     }
 
     // MARK: Helpers
@@ -281,7 +290,7 @@ final class SettingsManager: ObservableObject {
             Keys.confirmStop, Keys.confirmDelete, Keys.confirmPrune, Keys.defaultShell,
             Keys.terminalFontName, Keys.terminalFontSize, Keys.forceBlackTerminal,
             Keys.customCliPath, Keys.defaultRegistry, Keys.quitBehavior,
-            Keys.hideXPCNoiseInLogs
+            Keys.hideXPCNoiseInLogs, Keys.sidebarTinted
         ]
         for key in allKeys { store.removeObject(forKey: key) }
 
@@ -303,6 +312,7 @@ final class SettingsManager: ObservableObject {
         defaultRegistry = Defaults.defaultRegistry
         quitBehavior = Defaults.quitBehavior
         hideXPCNoiseInLogs = Defaults.hideXPCNoiseInLogs
+        sidebarTinted = Defaults.sidebarTinted
     }
 
     /// Registers or unregisters the app as a login item via `SMAppService`.
