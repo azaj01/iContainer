@@ -4,10 +4,16 @@ import AppKit
 struct ServiceDetailView: View {
     @EnvironmentObject var serviceManager: ServiceManager
     @EnvironmentObject var containerManager: ContainerizationWrapper
+    @EnvironmentObject var statsStore: ContainerStatsStore
     @EnvironmentObject var releaseChecker: ContainerReleaseChecker
     @State private var selectedTab = 0
     @State private var isRemovingRegistryCredentials = false
     @State private var showingRemoveRegistryCredentialsConfirmation = false
+    @State private var serviceStatsRefreshTask: Task<Void, Never>?
+    @State private var serviceLogsFilter = ""
+
+    private let serviceStatsRefreshNanos: UInt64 = 3_000_000_000
+    private let serviceStatsChartWindow: TimeInterval = 300
     
     var body: some View {
         VStack(spacing: 0) {
@@ -15,10 +21,11 @@ struct ServiceDetailView: View {
                 Spacer()
                 Picker("", selection: $selectedTab) {
                     Text("Info").tag(0)
-                    Text("Logs").tag(1)
+                    Text("Stats").tag(1)
+                    Text("Logs").tag(2)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 180)
+                .frame(width: 240)
                 Spacer()
             }
             .padding(.horizontal)
@@ -29,6 +36,8 @@ struct ServiceDetailView: View {
                 case 0:
                     serviceInfoView
                 case 1:
+                    serviceStatsView
+                case 2:
                     serviceLogsView
                 default:
                     EmptyView()
@@ -41,7 +50,7 @@ struct ServiceDetailView: View {
             await releaseChecker.checkForUpdateIfNeeded()
         }
         .task(id: selectedTab) {
-            if selectedTab == 1 && serviceManager.serviceLogs.isEmpty {
+            if selectedTab == 2 && serviceManager.serviceLogs.isEmpty {
                 await serviceManager.refreshServiceLogs()
             }
         }
@@ -118,6 +127,37 @@ struct ServiceDetailView: View {
                             .foregroundColor(.secondary)
                     }
 
+                    DetailSection(title: "Build Infrastructure", icon: "hammer") {
+                        if containerManager.systemContainers.isEmpty {
+                            Text("No build workers are currently running. Apple's `container` CLI starts one automatically on the first image build.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(containerManager.systemContainers) { container in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(container.name)
+                                            .font(.body)
+                                            .fontWeight(.medium)
+                                        Spacer()
+                                        StatusBadge(status: container.status == .running ? "Running" : "Stopped")
+                                    }
+                                    if let image = container.image {
+                                        DetailRow(label: "Image", value: image, isMonospaced: true)
+                                    }
+                                    if let ip = container.ipAddress {
+                                        DetailRow(label: "Address", value: ip, isMonospaced: true)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            Text("Managed automatically by the `container` CLI. These workers don't appear in the sidebar; they spin up on `container build` and stay running to speed up subsequent builds.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 4)
+                        }
+                    }
+
                     DetailSection(title: "Registry Authentication", icon: "person.badge.key") {
                         DetailRow(label: "Status", value: registryStatusText)
                         if let host = registryPrimaryHost {
@@ -171,80 +211,268 @@ struct ServiceDetailView: View {
         }
     }
 
-    private var serviceLogsView: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Apple Container Service Logs")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    Spacer()
-                    if serviceManager.isLoadingServiceLogs {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    }
-                    Toggle("Follow", isOn: Binding(
-                        get: { serviceManager.isFollowingServiceLogs },
-                        set: { shouldFollow in
-                            if shouldFollow {
-                                serviceManager.startFollowingServiceLogs()
-                            } else {
-                                serviceManager.stopFollowingServiceLogs()
+    private var serviceStatsView: some View {
+        GeometryReader { proxy in
+            let horizontalPadding: CGFloat = 24
+            let sectionInnerPadding: CGFloat = 32
+            let sectionContentWidth = max(0, proxy.size.width - (horizontalPadding * 2) - sectionInnerPadding)
+            let statsHeight = max(420, proxy.size.height - 180)
+            let chartHeight = max(90, (statsHeight - 48) / 3)
+            let infoBoxHeight = max(150, chartHeight)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    serviceStatsHeader
+                    DetailSection(title: "Aggregate Resource Usage", icon: "speedometer") {
+                        if let snapshot = statsStore.serviceHistory.latest {
+                            HStack(alignment: .top, spacing: 16) {
+                                serviceStatsNumeric(snapshot)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 18)
+                                    .frame(width: sectionContentWidth * 0.33, alignment: .topLeading)
+                                    .frame(minHeight: infoBoxHeight, alignment: .topLeading)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(10)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color.gray.opacity(0.15), lineWidth: 1)
+                                    )
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ChartPanel(title: "CPU % of host (\(hostCoreCount) cores)") {
+                                        StatTimelineChart(
+                                            points: statsStore.serviceHistory.cpuSeries.map {
+                                                StatPoint(time: $0.time, value: normalizedHostCpu($0.value))
+                                            },
+                                            domain: serviceChartDomain,
+                                            yDomain: 0...100
+                                        )
+                                    }
+                                    .frame(height: infoBoxHeight)
+                                    ChartPanel(title: "Memory (MB)") {
+                                        StatTimelineChart(
+                                            points: statsStore.serviceHistory.memorySeries,
+                                            domain: serviceChartDomain
+                                        )
+                                    }
+                                    .frame(height: chartHeight)
+                                    ChartPanel(title: "Network (KB/s)") {
+                                        StatTimelineChart(
+                                            points: statsStore.serviceHistory.netSeries,
+                                            domain: serviceChartDomain
+                                        )
+                                    }
+                                    .frame(height: chartHeight)
+                                }
+                                .padding()
+                                .padding(.top, -16)
+                                .padding(.trailing, 4)
+                                .frame(width: sectionContentWidth * 0.67, alignment: .leading)
                             }
+                            .padding(.top, -8)
+                            .frame(width: sectionContentWidth, alignment: .leading)
+                            .frame(height: statsHeight)
+                        } else {
+                            VStack(spacing: 12) {
+                                Image(systemName: "pause.circle")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.secondary)
+                                Text("No running containers")
+                                    .font(.headline)
+                                Text("Start a container to begin collecting service-wide stats.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 60)
                         }
-                    ))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    Button("Clear") {
-                        serviceManager.clearServiceLogs()
                     }
-                    .controlSize(.small)
-                    Button {
-                        Task { await serviceManager.refreshServiceLogs() }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .controlSize(.small)
-                    .disabled(serviceManager.isLoadingServiceLogs || serviceManager.isFollowingServiceLogs)
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(serviceManager.serviceLogs, forType: .string)
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                    .controlSize(.small)
-                    .disabled(serviceManager.serviceLogs.isEmpty)
                 }
-                Text(serviceLogsCheckedAtText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, 16)
             }
+        }
+        .onAppear { startServiceStatsRefresh() }
+        .onDisappear { stopServiceStatsRefresh() }
+    }
 
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    Text(serviceManager.serviceLogs.isEmpty ? "No service logs loaded yet. Press Refresh to load the latest Apple Container service logs, or enable Follow for live output." : serviceManager.serviceLogs)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                    Color.clear
-                        .frame(height: 1)
-                        .id("SERVICE_LOGS_BOTTOM")
-                }
-                .onChange(of: serviceManager.serviceLogs) { _, _ in
-                    guard serviceManager.isFollowingServiceLogs else { return }
-                    proxy.scrollTo("SERVICE_LOGS_BOTTOM", anchor: .bottom)
-                }
-            }
-            .background(Color(NSColor.textBackgroundColor).opacity(0.35))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+    private var serviceStatsHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Service-wide Stats")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+            Text("Aggregate of every running container in the `container` service, including build workers. CPU is normalized against the host's \(hostCoreCount) cores (Activity-Monitor-style: 100% = host fully busy). Sourced from `container stats --no-stream`.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func serviceStatsNumeric(_ snapshot: ServiceStats) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DetailRow(label: "Running", value: "\(snapshot.runningContainerCount)")
+            DetailRow(
+                label: "CPU %",
+                value: String(format: "%.2f%% of host", normalizedHostCpu(snapshot.cpuPercentValue))
+            )
+            DetailRow(
+                label: "Memory",
+                value: formatBytesPair(used: snapshot.memoryUsageBytes, limit: snapshot.memoryLimitBytes)
+            )
+            DetailRow(
+                label: "Net Rx/Tx",
+                value: formatBytesPair(used: snapshot.netRxBytes, limit: snapshot.netTxBytes)
+            )
+            DetailRow(
+                label: "Block I/O",
+                value: formatBytesPair(used: snapshot.blockReadBytes, limit: snapshot.blockWriteBytes)
             )
         }
-        .padding()
+    }
+
+    private func formatBytesPair(used: Int64, limit: Int64) -> String {
+        let usedStr = ByteCountFormatter.string(fromByteCount: used, countStyle: .file)
+        if limit > 0 {
+            let limitStr = ByteCountFormatter.string(fromByteCount: limit, countStyle: .file)
+            return "\(usedStr) / \(limitStr)"
+        }
+        return usedStr
+    }
+
+    /// Number of host CPU cores. Used to normalize the raw cores-equivalent
+    /// % returned by `container stats` into "% of host capacity",
+    /// Activity-Monitor-style: 100% = the host is fully busy.
+    private var hostCoreCount: Int {
+        max(1, ProcessInfo.processInfo.activeProcessorCount)
+    }
+
+    private func normalizedHostCpu(_ raw: Double) -> Double {
+        min(100, raw / Double(hostCoreCount))
+    }
+
+    private var serviceChartDomain: ClosedRange<Date> {
+        let history = statsStore.serviceHistory
+        let end = [
+            history.cpuSeries.last?.time,
+            history.memorySeries.last?.time,
+            history.netSeries.last?.time
+        ].compactMap { $0 }.max() ?? Date()
+        return end.addingTimeInterval(-serviceStatsChartWindow)...end
+    }
+
+    private func startServiceStatsRefresh() {
+        stopServiceStatsRefresh()
+        serviceStatsRefreshTask = Task {
+            while !Task.isCancelled {
+                await containerManager.sampleServiceStats()
+                try? await Task.sleep(nanoseconds: serviceStatsRefreshNanos)
+            }
+        }
+    }
+
+    private func stopServiceStatsRefresh() {
+        serviceStatsRefreshTask?.cancel()
+        serviceStatsRefreshTask = nil
+    }
+
+    private var serviceLogsView: some View {
+        GeometryReader { proxy in
+            let logAreaHeight = max(240, proxy.size.height - 220)
+            VStack(alignment: .leading, spacing: 24) {
+                DetailSection(title: "Logs", icon: "doc.plaintext") {
+                    VStack(spacing: 12) {
+                        HStack(spacing: 12) {
+                            TextField("Filter", text: $serviceLogsFilter)
+                                .textFieldStyle(.roundedBorder)
+                            if serviceManager.isLoadingServiceLogs {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            }
+                            Toggle("Follow", isOn: Binding(
+                                get: { serviceManager.isFollowingServiceLogs },
+                                set: { shouldFollow in
+                                    if shouldFollow {
+                                        serviceManager.startFollowingServiceLogs()
+                                    } else {
+                                        serviceManager.stopFollowingServiceLogs()
+                                    }
+                                }
+                            ))
+                            .toggleStyle(.switch)
+                            Button("Refresh") {
+                                Task { await serviceManager.refreshServiceLogs() }
+                            }
+                            .disabled(serviceManager.isLoadingServiceLogs || serviceManager.isFollowingServiceLogs)
+                            Button("Clear") {
+                                serviceManager.clearServiceLogs()
+                            }
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(filteredServiceLogs, forType: .string)
+                            }
+                            .disabled(serviceManager.serviceLogs.isEmpty)
+                        }
+
+                        ScrollViewReader { proxy in
+                            let s = SettingsManager.shared
+                            ScrollView {
+                                Text(filteredServiceLogs.isEmpty ? "No logs yet." : filteredServiceLogs)
+                                    .font(.custom(s.terminalFontName, size: s.terminalFontSize, relativeTo: .body).monospaced())
+                                    .foregroundColor(s.forceBlackTerminal ? .white : nil)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(s.forceBlackTerminal ? 8 : 0)
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("SERVICE_LOGS_BOTTOM")
+                            }
+                            .frame(height: logAreaHeight)
+                            .background(s.forceBlackTerminal ? Color.black : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: s.forceBlackTerminal ? 6 : 0))
+                            .onChange(of: serviceManager.serviceLogs) { _, _ in
+                                guard serviceManager.isFollowingServiceLogs else { return }
+                                proxy.scrollTo("SERVICE_LOGS_BOTTOM", anchor: .bottom)
+                            }
+                        }
+
+                        Text(serviceLogsCheckedAtText)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .onAppear {
+            if !serviceManager.isFollowingServiceLogs {
+                serviceManager.startFollowingServiceLogs()
+            }
+        }
+        .onDisappear {
+            serviceManager.stopFollowingServiceLogs()
+        }
+    }
+
+    private var filteredServiceLogs: String {
+        let trimmed = serviceLogsFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hideXPCNoise = SettingsManager.shared.hideXPCNoiseInLogs
+        if trimmed.isEmpty && !hideXPCNoise { return serviceManager.serviceLogs }
+        return serviceManager.serviceLogs
+            .components(separatedBy: .newlines)
+            .filter { line in
+                if hideXPCNoise, Self.isXPCNoise(line) { return false }
+                if trimmed.isEmpty { return true }
+                return line.localizedCaseInsensitiveContains(trimmed)
+            }
+            .joined(separator: "\n")
+    }
+
+    /// Lines emitted by Apple's `container` daemons when a short-lived CLI
+    /// client disconnects (e.g. after `container list`). iContainer's poll
+    /// cycle triggers several of these per second, so hiding them is
+    /// almost always what the user wants. Matched as a substring so the
+    /// timestamp/logger prefix in front doesn't matter.
+    private static func isXPCNoise(_ line: String) -> Bool {
+        line.localizedCaseInsensitiveContains("xpc client handler")
     }
 
     private var latestReleaseText: String {

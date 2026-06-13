@@ -7,6 +7,37 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-13
+
+### Added
+- Service-wide Stats tab in the Apple container service detail view.
+  Shows aggregate CPU / memory / network across every running container
+  (build workers included), with CPU normalized against the host core
+  count (Activity-Monitor style). Sampled in the background via
+  `container stats --no-stream` and stored in `ContainerStatsStore`'s
+  `ServiceHistory`, so the chart is already populated on open.
+- "Build Infrastructure" section in the Service detail view that surfaces
+  the infrastructure containers Apple's CLI manages itself (currently the
+  BuildKit shim). These are filtered out of the sidebar into a separate
+  `systemContainers` list so they don't mix with the user's containers.
+- Live build output: `container build` now streams progress
+  (`--progress plain`) line-by-line into a scrollable, auto-scrolling
+  panel in the create sheet instead of freezing until completion. Backed
+  by a new `runCommandStreaming` helper.
+- "Start after creation" checkbox in the create sheet. When enabled the
+  new container is started and selected automatically; `createContainer`
+  now returns the created id so the app can navigate to it.
+- "Hide noisy XPC connection errors" setting (Logs section, default on).
+  Filters the repetitive `Connection invalid` lifecycle errors Apple's
+  `container` daemons emit on every CLI disconnect from the service logs
+  view. Display-only — the underlying system logs are untouched.
+
+### Changed
+- Logs tab consolidates the separate "Auto Refresh" and "Auto Scroll"
+  toggles into a single "Follow" switch (they always moved together):
+  following polls for new lines and pins the scroll to the latest entry;
+  off means manual refresh and free scrolling.
+
 ## [1.4.0] - 2026-06-13
 
 ### Added

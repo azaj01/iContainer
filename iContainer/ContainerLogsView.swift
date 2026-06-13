@@ -15,8 +15,12 @@ struct ContainerLogsView: View {
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @State private var logsText: String = ""
     @State private var isLoadingLogs = false
-    @State private var autoRefresh = true
-    @State private var autoScroll = true
+    /// Single "Follow" toggle. When on: poll for new lines every refresh
+    /// interval AND keep the scroll pinned to the latest entry. When off:
+    /// no polling, no auto-scroll — the user reads what they have and
+    /// presses Refresh manually. Replaces the previous Auto Refresh /
+    /// Auto Scroll pair, which always moved together in practice.
+    @State private var isFollowing = true
     @State private var filterText = ""
     @State private var lastClearDate: Date = .distantPast
     @State private var lastSnapshotLines: [String] = []
@@ -40,13 +44,16 @@ struct ContainerLogsView: View {
                         HStack(spacing: 12) {
                             TextField("Filter", text: $filterText)
                                 .textFieldStyle(.roundedBorder)
-                            Toggle("Auto Refresh", isOn: $autoRefresh)
-                                .toggleStyle(.switch)
-                            Toggle("Auto Scroll", isOn: $autoScroll)
+                            if isLoadingLogs {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            }
+                            Toggle("Follow", isOn: $isFollowing)
                                 .toggleStyle(.switch)
                             Button("Refresh") {
                                 Task { await refreshLogs() }
                             }
+                            .disabled(isLoadingLogs || isFollowing)
                             Button("Clear") {
                                 logsText = ""
                                 lastClearDate = Date()
@@ -75,9 +82,8 @@ struct ContainerLogsView: View {
                             .background(s.forceBlackTerminal ? Color.black : Color.clear)
                             .clipShape(RoundedRectangle(cornerRadius: s.forceBlackTerminal ? 6 : 0))
                             .onChange(of: logsText) { _, _ in
-                                if autoScroll {
-                                    proxy.scrollTo("BOTTOM", anchor: .bottom)
-                                }
+                                guard isFollowing else { return }
+                                proxy.scrollTo("BOTTOM", anchor: .bottom)
                             }
                         }
                     }
@@ -111,7 +117,7 @@ struct ContainerLogsView: View {
         guard isActive else { return }
         refreshTask = Task {
             while !Task.isCancelled {
-                if autoRefresh {
+                if isFollowing {
                     await refreshLogs()
                 }
                 try? await Task.sleep(nanoseconds: refreshIntervalNanos)

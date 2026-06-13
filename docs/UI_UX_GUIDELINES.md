@@ -176,6 +176,33 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
 - Body copy stays short and concrete: container name in quotes, plain
   English, no shell traces.
 
+## Service Stats and Build Infrastructure
+- The Apple container service detail has its own Stats tab showing a
+  service-wide aggregate (CPU/memory/network across all running
+  containers). CPU is normalized against the host core count
+  (Activity-Monitor style: 100% = host fully busy), and the chart is
+  pre-populated from background sampling — never start from an empty
+  chart when data is already available.
+- Infrastructure containers the CLI manages itself (BuildKit shim) must
+  not appear in the sidebar. Surface them only in the Service detail
+  "Build Infrastructure" section, with a one-line explanation that they
+  are managed automatically. This mirrors Docker Desktop / OrbStack.
+
+## Container creation
+- The create sheet offers a "Start after creation" checkbox (default
+  on). On success, navigate to the newly created container.
+- Build output must stream live into a scrollable, auto-scrolling panel
+  — never freeze the sheet until the build finishes.
+
+## Logs
+- The per-container Logs tab uses a single "Follow" toggle (not separate
+  Auto Refresh / Auto Scroll): following both polls for new lines and
+  pins the scroll to the latest entry; off means manual refresh and free
+  scrolling. Refresh is disabled while following.
+- Cosmetic daemon noise (XPC `Connection invalid`) is hidden by default
+  in the service logs view; the filter is display-only and user-toggleable
+  in Settings → Terminal/Logs.
+
 ## Terminal customization
 - The Shell and Logs panels honor the user's monospaced font, font
   size, and an optional high-contrast black background. New

@@ -197,13 +197,19 @@ struct ContainerStatsView: View {
 /// the tab) are split into separate line segments instead of being joined
 /// by a misleading straight line; a segment with a single sample is drawn
 /// as a dot so the very first poll is visible immediately.
-private struct StatTimelineChart: View {
+struct StatTimelineChart: View {
     let points: [StatPoint]
     let domain: ClosedRange<Date>
     var yDomain: ClosedRange<Double>? = nil
 
-    /// Samples arrive every ~3 s; anything beyond this is a real gap.
-    private let gapThreshold: TimeInterval = 10
+    /// Maximum spacing between consecutive samples before the chart breaks
+    /// them into separate segments (drawn as isolated dots instead of a
+    /// connected line). Restart gaps don't need to be detected here —
+    /// stopping a container clears its history in `ContainerStatsStore`
+    /// outright, so a "restart" never appears as a gap within a series.
+    /// The threshold only needs to be generous enough to bridge a slow
+    /// global poll cycle (configurable, can be 60+ s).
+    var gapThreshold: TimeInterval = 120
 
     private struct SegmentPoint: Identifiable {
         let id: UUID
@@ -286,7 +292,7 @@ private struct StatTimelineChart: View {
 /// Boxed wrapper that gives each `Chart` a title and a subtle outline so
 /// the three series visually line up. Generic over the chart content so
 /// each panel can pass its own `Chart { LineMark(...) }` block.
-private struct ChartPanel<Content: View>: View {
+struct ChartPanel<Content: View>: View {
     let title: String
     let content: Content
 
@@ -330,6 +336,78 @@ struct StatPoint: Identifiable {
     let id = UUID()
     let time: Date
     let value: Double
+}
+
+/// Aggregate resource snapshot across every running container managed by
+/// the `container` service (including infrastructure workers like the
+/// BuildKit shim — those are real work the service is doing). Built from
+/// the multi-row table that `container stats --no-stream` returns with no
+/// arguments, which Apple itself exposes as the "all containers" view.
+struct ServiceStats: Equatable {
+    let runningContainerCount: Int
+    /// Raw sum of per-container Cpu %. Can exceed 100 (each container is
+    /// per-core), so the view normalizes against host core count for display.
+    let cpuPercentValue: Double
+    let memoryUsageBytes: Int64
+    let memoryLimitBytes: Int64
+    let netRxBytes: Int64
+    let netTxBytes: Int64
+    let blockReadBytes: Int64
+    let blockWriteBytes: Int64
+}
+
+/// Parses the multi-row table output of `container stats --no-stream`
+/// (no arguments), returning the aggregate sums. Returns nil if the table
+/// has no data rows.
+func parseServiceStats(_ output: String) -> ServiceStats? {
+    let lines = output.components(separatedBy: .newlines).filter { !$0.isEmpty }
+    guard lines.count >= 2 else { return nil }
+    let header = lines[0]
+    let columnNames = ["Container ID", "Cpu %", "Memory Usage", "Net Rx/Tx", "Block I/O", "Pids"]
+    let ranges = columnRanges(in: header, columns: columnNames)
+    guard !ranges.isEmpty else { return nil }
+
+    var count = 0
+    var cpuSum: Double = 0
+    var memUsage: Int64 = 0
+    var memLimit: Int64 = 0
+    var netRx: Int64 = 0
+    var netTx: Int64 = 0
+    var blkRead: Int64 = 0
+    var blkWrite: Int64 = 0
+
+    for line in lines.dropFirst() {
+        var map: [String: String] = [:]
+        for (name, range) in ranges {
+            map[name.lowercased()] = substring(line, startOffset: range.start, endOffset: range.end)
+                .trimmingCharacters(in: .whitespaces)
+        }
+        if let cpu = map["cpu %"].flatMap({ parsePercent($0) }) { cpuSum += cpu }
+        if let pair = map["memory usage"].flatMap({ parseUsageAndLimit($0) }) {
+            memUsage += pair.usage
+            memLimit += pair.limit ?? 0
+        }
+        if let net = map["net rx/tx"].flatMap({ parseRxTx($0) }) {
+            netRx += net.rx
+            netTx += net.tx
+        }
+        if let blk = map["block i/o"].flatMap({ parseRxTx($0) }) {
+            blkRead += blk.rx
+            blkWrite += blk.tx
+        }
+        count += 1
+    }
+    guard count > 0 else { return nil }
+    return ServiceStats(
+        runningContainerCount: count,
+        cpuPercentValue: cpuSum,
+        memoryUsageBytes: memUsage,
+        memoryLimitBytes: memLimit,
+        netRxBytes: netRx,
+        netTxBytes: netTx,
+        blockReadBytes: blkRead,
+        blockWriteBytes: blkWrite
+    )
 }
 
 private struct ColumnRange {

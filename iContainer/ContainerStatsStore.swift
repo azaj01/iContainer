@@ -26,6 +26,20 @@ final class ContainerStatsStore: ObservableObject {
 
     @Published private(set) var histories: [String: History] = [:]
 
+    /// Aggregate history across every running container in the `container`
+    /// service. Populated by `recordService(...)` from the polling loop so
+    /// the Service → Stats tab opens already populated, same as the
+    /// per-container chart.
+    struct ServiceHistory {
+        var latest: ServiceStats?
+        var cpuSeries: [StatPoint] = []
+        var memorySeries: [StatPoint] = []
+        var netSeries: [StatPoint] = []
+        var lastNetTotalBytes: Int64?
+        var lastNetSampleDate: Date?
+    }
+    @Published private(set) var serviceHistory = ServiceHistory()
+
     /// Keep a generous window so the chart's fixed five-minute span always
     /// has data plus headroom, and a "stopped then restarted" gap stays
     /// visible rather than being trimmed away.
@@ -81,5 +95,40 @@ final class ContainerStatsStore: ObservableObject {
     /// later restart charts fresh instead of bridging the downtime.
     func clearHistory(for id: String) {
         histories.removeValue(forKey: id)
+    }
+
+    /// Records one service-wide aggregate sample. `now` is injected for
+    /// testability.
+    func recordService(stats: ServiceStats, at now: Date = Date()) {
+        var history = serviceHistory
+        history.latest = stats
+
+        history.cpuSeries.append(StatPoint(time: now, value: stats.cpuPercentValue))
+        history.memorySeries.append(StatPoint(time: now, value: Double(stats.memoryUsageBytes) / 1_048_576.0))
+
+        let total = stats.netRxBytes + stats.netTxBytes
+        if let lastTotal = history.lastNetTotalBytes, let lastTime = history.lastNetSampleDate {
+            let deltaBytes = max(0, total - lastTotal)
+            let elapsed = max(1.0, now.timeIntervalSince(lastTime))
+            history.netSeries.append(StatPoint(time: now, value: (Double(deltaBytes) / 1024.0) / elapsed))
+        } else {
+            history.netSeries.append(StatPoint(time: now, value: 0))
+        }
+        history.lastNetTotalBytes = total
+        history.lastNetSampleDate = now
+
+        let cutoff = now.addingTimeInterval(-retentionSeconds)
+        history.cpuSeries.removeAll { $0.time < cutoff }
+        history.memorySeries.removeAll { $0.time < cutoff }
+        history.netSeries.removeAll { $0.time < cutoff }
+
+        serviceHistory = history
+    }
+
+    /// Resets the aggregate history. Called when no containers are running
+    /// so a future "first container started" doesn't bridge a downtime gap
+    /// with a misleading flat line.
+    func clearServiceHistory() {
+        serviceHistory = ServiceHistory()
     }
 }

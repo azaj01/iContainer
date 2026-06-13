@@ -48,7 +48,12 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - `iContainer/ContainerizationWrapper.swift`: async wrapper around the
   `container` CLI (containers/images/logs/stats/exec/registry). Pure
   parsing is delegated to `CLIParsers`. Owns the `statsStore` and, on
-  every poll tick, samples `container stats` for each running container.
+  every poll tick, samples per-container stats plus a service-wide
+  aggregate (`container stats --no-stream`). Splits the CLI's container
+  list into user `containers` and infrastructure `systemContainers`
+  (via `isSystemContainer`, matching the BuildKit shim image prefix).
+  `createContainer` returns the new container id; `buildImage` streams
+  progress through `runCommandStreaming` (`--progress plain`).
 - `iContainer/ServiceManager.swift`: polls the container system service,
   tracks status and follows logs. Pure parsing is delegated to
   `CLIParsers`.
@@ -79,12 +84,14 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - `iContainer/ContainerInfoView.swift`: Info tab, including port links
   and mount links.
 - `iContainer/ContainerStatsView.swift`: Stats tab, including chart
-  panel and the stats parser. Reads history from `ContainerStatsStore`
+  panel and both the per-container (`ContainerStats`) and service-wide
+  (`ServiceStats`) parsers. Reads history from `ContainerStatsStore`
   (populated in the background) and samples its own container for
   liveness while open.
 - `iContainer/ContainerShellView.swift`: Shell tab plus the persistent
   `ContainerShellSession` per container.
 - `iContainer/ContainerLogsView.swift`: Logs tab with delta polling.
+  A single "Follow" toggle drives both polling and auto-scroll.
 - `iContainer/ContainerInspectFallback.swift`: untyped-dictionary inspect
   parser for fields that the typed `Decodable` does not cover.
 - `iContainer/DetailRowComponents.swift`: `DetailSection`, `DetailRow`,
@@ -92,7 +99,13 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 
 ### System service detail
 - `iContainer/ServiceDetailView.swift`: system service detail page with
-  Info and Logs tabs.
+  Info, Stats, and Logs tabs. The Info tab includes a "Build
+  Infrastructure" section listing `containerManager.systemContainers`
+  (the BuildKit shim and similar CLI-managed workers). The Stats tab
+  shows service-wide aggregate CPU/memory/network from
+  `statsStore.serviceHistory`, normalized against the host core count.
+  The Logs tab can hide repetitive XPC `Connection invalid` noise when
+  `SettingsManager.hideXPCNoiseInLogs` is on (display-only filter).
 
 ### Settings and notifications
 - `iContainer/Settings.swift`: `SettingsManager` (`ObservableObject`
@@ -172,7 +185,8 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
     Manual / 2 / 5 / 10), confirm Stop (on), confirm Delete (on),
     confirm Prune (on).
   - **Terminal**: default in-container shell (`sh`), font name (Menlo),
-    font size (12), force-black terminal (off).
+    font size (12), force-black terminal (off), hide noisy XPC
+    connection errors in logs (on; display-only filter).
   - **Advanced**: custom CLI path (empty), default registry
     (`registry-1.docker.io`).
 - Side effects:
@@ -216,6 +230,11 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   - running containers first
   - stopped containers second
   - alphabetical order inside each status group
+- Infrastructure containers (BuildKit shim, image prefix
+  `ghcr.io/apple/container-builder-shim/`) are kept out of the sidebar
+  in a separate `systemContainers` list and surfaced only in the
+  Service detail "Build Infrastructure" section — same convention as
+  Docker Desktop / OrbStack.
 - `Images` section behavior:
   - section is always visible
   - image rows are shown only when service is running
@@ -266,11 +285,15 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   - `Apple Container System Service`
 
 ## Service Logs
-- Apple Container System Service detail uses tabs: `Info` and `Logs`.
+- Apple Container System Service detail uses tabs: `Info`, `Stats`, and `Logs`.
 - Service logs come from the official `container system logs --last 15m` command and are capped before display.
 - Service logs can be followed live with `container system logs --last 15m -f`; disabling follow terminates the child process.
 - The Logs tab supports refresh, follow, clear, and copy actions.
 - Service logs are global service/runtime diagnostics and are separate from per-container stdout/stderr logs.
+- The repetitive XPC `Connection invalid` lifecycle errors Apple's
+  daemons emit on every CLI disconnect are filtered from the display
+  when `SettingsManager.hideXPCNoiseInLogs` is on (default). This is a
+  presentation filter only — the system logs themselves are unchanged.
 
 ## Build/Run Workflow
 - Standard build command:

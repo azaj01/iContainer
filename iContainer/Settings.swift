@@ -119,6 +119,7 @@ final class SettingsManager: ObservableObject {
         static let customCliPath = "settings.customCliPath"
         static let defaultRegistry = "settings.defaultRegistry"
         static let quitBehavior = "settings.quitBehavior"
+        static let hideXPCNoiseInLogs = "settings.hideXPCNoiseInLogs"
     }
 
     nonisolated enum Defaults {
@@ -139,6 +140,7 @@ final class SettingsManager: ObservableObject {
         static let customCliPath = ""
         static let defaultRegistry = "registry-1.docker.io"
         static let quitBehavior: QuitBehavior = .ask
+        static let hideXPCNoiseInLogs = true
     }
 
     // MARK: Published preferences
@@ -214,6 +216,17 @@ final class SettingsManager: ObservableObject {
         didSet { store.set(quitBehavior.rawValue, forKey: Keys.quitBehavior) }
     }
 
+    /// When on, filters out the verbose XPC connection lifecycle errors
+    /// that Apple's `container` daemons emit on every CLI invocation
+    /// (e.g. `Connection invalid` from `container-core-images`). These
+    /// rows are cosmetic noise — they fire whenever a short-lived client
+    /// disconnects — and iContainer's frequent polling makes them
+    /// dominate the logs view. The setting only hides them from display;
+    /// the underlying service logs are unchanged.
+    @Published var hideXPCNoiseInLogs: Bool {
+        didSet { store.set(hideXPCNoiseInLogs, forKey: Keys.hideXPCNoiseInLogs) }
+    }
+
     private let store: UserDefaults
 
     init(store: UserDefaults = .standard) {
@@ -245,6 +258,7 @@ final class SettingsManager: ObservableObject {
         _customCliPath = Published(initialValue: store.string(forKey: Keys.customCliPath) ?? Defaults.customCliPath)
         _defaultRegistry = Published(initialValue: store.string(forKey: Keys.defaultRegistry) ?? Defaults.defaultRegistry)
         _quitBehavior = Published(initialValue: (store.string(forKey: Keys.quitBehavior).flatMap(QuitBehavior.init(rawValue:))) ?? Defaults.quitBehavior)
+        _hideXPCNoiseInLogs = Published(initialValue: store.object(forKey: Keys.hideXPCNoiseInLogs) as? Bool ?? Defaults.hideXPCNoiseInLogs)
     }
 
     // MARK: Helpers
@@ -266,7 +280,8 @@ final class SettingsManager: ObservableObject {
             Keys.notifyContainerStopped, Keys.notifyActionFailed, Keys.refreshIntervalSeconds,
             Keys.confirmStop, Keys.confirmDelete, Keys.confirmPrune, Keys.defaultShell,
             Keys.terminalFontName, Keys.terminalFontSize, Keys.forceBlackTerminal,
-            Keys.customCliPath, Keys.defaultRegistry, Keys.quitBehavior
+            Keys.customCliPath, Keys.defaultRegistry, Keys.quitBehavior,
+            Keys.hideXPCNoiseInLogs
         ]
         for key in allKeys { store.removeObject(forKey: key) }
 
@@ -287,6 +302,7 @@ final class SettingsManager: ObservableObject {
         customCliPath = Defaults.customCliPath
         defaultRegistry = Defaults.defaultRegistry
         quitBehavior = Defaults.quitBehavior
+        hideXPCNoiseInLogs = Defaults.hideXPCNoiseInLogs
     }
 
     /// Registers or unregisters the app as a login item via `SMAppService`.

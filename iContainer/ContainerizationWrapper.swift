@@ -12,6 +12,11 @@ class ContainerizationWrapper: ObservableObject {
     }
 
     @Published var containers: [Container] = []
+    /// Infrastructure containers Apple's `container` CLI manages itself
+    /// (currently the BuildKit shim). Kept separate from `containers` so
+    /// they don't clutter the sidebar, and exposed for the Service view to
+    /// surface their presence.
+    @Published var systemContainers: [Container] = []
     @Published var updatingContainerIDs: Set<String> = []
     @Published var missingDependencies: [DependencyError] = []
     @Published var images: [ContainerImage] = []
@@ -69,6 +74,7 @@ class ContainerizationWrapper: ObservableObject {
 
         await refreshContainers()
         await sampleRunningContainerStats()
+        await sampleServiceStats()
         await refreshImages()
         await refreshRegistryAuthStatus()
     }
@@ -100,6 +106,32 @@ class ContainerizationWrapper: ObservableObject {
         }
     }
 
+    /// Fetches and records a single service-wide aggregate stats sample.
+    /// Uses `container stats --no-stream` with no arguments — Apple's CLI
+    /// returns one row per running container in a single shot, which is the
+    /// authoritative "all containers" view. The aggregate includes
+    /// infrastructure containers (e.g. BuildKit shim): they're real work
+    /// the service is doing, and the user already sees them surfaced in the
+    /// Build Infrastructure section of the Service tab.
+    func sampleServiceStats() async {
+        // Avoid charting a flat zero line while no container is running.
+        // `container stats` would print only a header in that case.
+        let anyRunning = containers.contains { $0.status == .running }
+            || systemContainers.contains { $0.status == .running }
+        guard anyRunning else {
+            statsStore.clearServiceHistory()
+            return
+        }
+        do {
+            let output = try await runCommand(["stats", "--no-stream"])
+            if let parsed = parseServiceStats(output) {
+                statsStore.recordService(stats: parsed)
+            }
+        } catch {
+            logger.error("Failed to sample service stats: \(error)")
+        }
+    }
+
     // MARK: - Terminal command runner
     private func runCommand(_ arguments: [String], standardInput: String? = nil) async throws -> String {
         let result = try await Task.detached(priority: .utility) {
@@ -114,6 +146,51 @@ class ContainerizationWrapper: ObservableObject {
             throw NSError(domain: "iContainer", code: Int(result.status), userInfo: [NSLocalizedDescriptionKey: description])
         }
         return result.output
+    }
+
+    /// Streams stdout+stderr of the `container` CLI line-by-line to `onChunk`
+    /// on the main actor while the process is still running. Used by the
+    /// build flow so the create sheet can show progress live instead of
+    /// freezing until completion. Returns the process exit status.
+    private func runCommandStreaming(
+        _ arguments: [String],
+        onChunk: @MainActor @escaping (String) -> Void
+    ) async throws -> Int32 {
+        guard let cliPath = Self.resolveCLIPath() else {
+            throw NSError(domain: "iContainer", code: 1, userInfo: [NSLocalizedDescriptionKey: "container CLI not found"])
+        }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: cliPath)
+                process.arguments = arguments
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = pipe
+
+                pipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+                    Task { @MainActor in onChunk(chunk) }
+                }
+
+                process.terminationHandler = { proc in
+                    pipe.fileHandleForReading.readabilityHandler = nil
+                    let remaining = pipe.fileHandleForReading.readDataToEndOfFile()
+                    if !remaining.isEmpty, let chunk = String(data: remaining, encoding: .utf8) {
+                        Task { @MainActor in onChunk(chunk) }
+                    }
+                    continuation.resume(returning: proc.terminationStatus)
+                }
+
+                do {
+                    try process.run()
+                } catch {
+                    pipe.fileHandleForReading.readabilityHandler = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     nonisolated private static func runCommandBlocking(_ arguments: [String], standardInput: String? = nil) throws -> (output: String, status: Int32) {
@@ -176,7 +253,7 @@ class ContainerizationWrapper: ObservableObject {
             let output = try await runCommand(["list", "--all", "--format", "json"])
             if let data = output.data(using: .utf8) {
                 let decoded = try JSONDecoder().decode([ContainerCLI].self, from: data)
-                let newContainers = decoded.map { cli in
+                func toContainer(_ cli: ContainerCLI) -> Container {
                     Container(
                         id: cli.configuration?.id ?? "",
                         name: cli.configuration?.hostname ?? cli.configuration?.id ?? "",
@@ -185,7 +262,7 @@ class ContainerizationWrapper: ObservableObject {
                         ipAddress: cli.networks?.first?.resolvedAddress
                     )
                 }
-                .sorted { lhs, rhs in
+                let sortByStatusThenName: (Container, Container) -> Bool = { lhs, rhs in
                     let lhsPriority = lhs.status == .running ? 0 : 1
                     let rhsPriority = rhs.status == .running ? 0 : 1
                     if lhsPriority != rhsPriority {
@@ -193,10 +270,16 @@ class ContainerizationWrapper: ObservableObject {
                     }
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
-                
-                // Update only if the containers list has changed
+                let userCLIs = decoded.filter { !Self.isSystemContainer($0) }
+                let systemCLIs = decoded.filter { Self.isSystemContainer($0) }
+                let newContainers = userCLIs.map(toContainer).sorted(by: sortByStatusThenName)
+                let newSystemContainers = systemCLIs.map(toContainer).sorted(by: sortByStatusThenName)
+
                 if self.containers != newContainers {
                     self.containers = newContainers
+                }
+                if self.systemContainers != newSystemContainers {
+                    self.systemContainers = newSystemContainers
                 }
                 notifyStatusTransitions(for: newContainers)
             }
@@ -311,15 +394,29 @@ class ContainerizationWrapper: ObservableObject {
         }
 
         lastErrorMessage = nil
-        lastBuildOutput = nil
+        lastBuildOutput = ""
         do {
-            let output = try await runCommand([
+            let status = try await runCommandStreaming([
                 "build",
+                "--progress", "plain",
                 "--tag", trimmedTag,
                 "--file", trimmedDockerfile,
                 trimmedContext
-            ])
-            lastBuildOutput = output
+            ]) { [weak self] chunk in
+                guard let self else { return }
+                self.lastBuildOutput = (self.lastBuildOutput ?? "") + chunk
+            }
+            if status != 0 {
+                let collected = lastBuildOutput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let message = collected.isEmpty
+                    ? "container build failed with exit code \(status)."
+                    : collected
+                lastErrorMessage = message
+                if Self.isRegistryAuthError(message) {
+                    registryAuthState = .notAuthenticated
+                }
+                return false
+            }
             await refreshImages()
             return true
         } catch {
@@ -406,17 +503,22 @@ class ContainerizationWrapper: ObservableObject {
         }
     }
 
+    /// Creates a container via `container create` and returns its id/name as
+    /// reported by the CLI on success, or `nil` on failure. The returned
+    /// string is the same value that appears as `Container.id` after the
+    /// next refresh, so callers can use it to navigate to the new container.
+    @discardableResult
     func createContainer(
         image: String,
         name: String?,
         publishedPorts: [String] = [],
         volumes: [String] = [],
         environment: [String] = []
-    ) async {
+    ) async -> String? {
         let trimmedImage = image.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedImage.isEmpty else {
             lastErrorMessage = "Image is required."
-            return
+            return nil
         }
 
         var args: [String] = ["create"]
@@ -450,15 +552,18 @@ class ContainerizationWrapper: ObservableObject {
         args.append(trimmedImage)
 
         do {
-            _ = try await runCommand(args)
+            let output = try await runCommand(args)
             await refreshContainers()
             await refreshRegistryAuthStatus()
+            let id = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return id.isEmpty ? nil : id
         } catch {
             logger.error("Failed to create container: \(error)")
             lastErrorMessage = error.localizedDescription
             if Self.isRegistryAuthError(error.localizedDescription) {
                 registryAuthState = .notAuthenticated
             }
+            return nil
         }
     }
 
@@ -679,6 +784,19 @@ class ContainerizationWrapper: ObservableObject {
 
     static func looksLikeTopLevelHelp(_ output: String) -> Bool {
         CLIParsers.looksLikeTopLevelHelp(output)
+    }
+
+    /// Hides infrastructure containers Apple's `container` CLI manages
+    /// automatically (currently the BuildKit shim used during `container
+    /// build`). Showing them mixes the user's containers with internal
+    /// workers and is the same convention Docker Desktop / OrbStack use.
+    private static let systemContainerImagePrefixes = [
+        "ghcr.io/apple/container-builder-shim/"
+    ]
+
+    nonisolated static func isSystemContainer(_ cli: ContainerCLI) -> Bool {
+        guard let reference = cli.configuration?.image?.reference else { return false }
+        return systemContainerImagePrefixes.contains { reference.hasPrefix($0) }
     }
 
     static func registryLoginHosts(for host: String) -> [String] {

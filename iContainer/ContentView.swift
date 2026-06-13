@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var createEnv = ""
     @State private var createEnvKey = ""
     @State private var createEnvValue = ""
+    @State private var createStartAfterCreation = true
     @State private var isCreatingContainer = false
     @State private var createErrorMessage: String?
     @State private var shouldOpenRegistryLoginAfterCreateSheet = false
@@ -597,6 +598,9 @@ struct ContentView: View {
                 TextField("Name (optional)", text: $createName)
                     .textFieldStyle(.roundedBorder)
 
+                Toggle("Start after creation", isOn: $createStartAfterCreation)
+                    .toggleStyle(.checkbox)
+
                 DisclosureGroup("Container Options", isExpanded: $isCreateOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 12) {
                         MappingPairsEditor(
@@ -762,11 +766,22 @@ struct ContentView: View {
                     action: browseCreateDockerfile
                 )
                 if let output = containerManager.lastBuildOutput, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(output)
-                        .font(.caption.monospaced())
-                        .foregroundColor(.secondary)
-                        .lineLimit(6)
-                        .textSelection(.enabled)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Text(output)
+                                .font(.caption.monospaced())
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("buildOutputTail")
+                        }
+                        .frame(maxHeight: 180)
+                        .background(Color(NSColor.textBackgroundColor).opacity(0.4))
+                        .cornerRadius(6)
+                        .onChange(of: output) { _, _ in
+                            proxy.scrollTo("buildOutputTail", anchor: .bottom)
+                        }
+                    }
                 }
             }
         }
@@ -956,7 +971,7 @@ struct ContentView: View {
                 }
             }
 
-            await containerManager.createContainer(
+            let createdId = await containerManager.createContainer(
                 image: image,
                 name: name.isEmpty ? nil : name,
                 publishedPorts: ports,
@@ -969,6 +984,12 @@ struct ContentView: View {
                 createErrorMessage = message
                 containerManager.lastErrorMessage = nil
             } else {
+                let navigationId = containerManager.containers
+                    .first(where: { $0.id == createdId || $0.name == createdId })?.id
+                    ?? createdId
+                if createStartAfterCreation, let navigationId, !navigationId.isEmpty {
+                    await containerManager.startContainer(containerId: navigationId)
+                }
                 createImageSource = .image
                 createImage = ""
                 createBuildTag = ""
@@ -986,7 +1007,11 @@ struct ContentView: View {
                 createEnv = ""
                 createEnvKey = ""
                 createEnvValue = ""
+                createStartAfterCreation = true
                 showingCreateContainerSheet = false
+                if let navigationId, !navigationId.isEmpty {
+                    appNavigation.showContainer(id: navigationId, tab: 0)
+                }
             }
         }
     }

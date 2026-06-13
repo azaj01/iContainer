@@ -216,6 +216,13 @@ struct SettingsView: View {
             groupBox("Appearance") {
                 Toggle("Force black background for terminal and logs", isOn: $settings.forceBlackTerminal)
             }
+
+            groupBox("Logs") {
+                Toggle("Hide noisy XPC connection errors", isOn: $settings.hideXPCNoiseInLogs)
+                Text("Apple's `container` daemons log a `Connection invalid` error every time a CLI client disconnects. With frequent polling these dominate the service log view. The full logs are still produced by the system — only the display is filtered.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
