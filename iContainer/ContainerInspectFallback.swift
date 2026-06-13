@@ -62,7 +62,12 @@ func parseContainerInspect(_ raw: String) -> ContainerInspectFallback? {
         let config = dict["configuration"] as? [String: Any]
         let initProcess = config?["initProcess"] as? [String: Any]
         let imageDict = config?["image"] as? [String: Any]
-        let networks = dict["networks"] as? [[String: Any]] ?? []
+        // container CLI ≥ 1.0 nests runtime networks inside the status
+        // object; ≤ 0.x kept them at the top level.
+        let statusDict = dict["status"] as? [String: Any]
+        let networks = dict["networks"] as? [[String: Any]]
+            ?? statusDict?["networks"] as? [[String: Any]]
+            ?? []
         let sockets = config?["publishedSockets"] as? [[String: Any]] ?? []
         let publishedPorts = config?["publishedPorts"] as? [[String: Any]] ?? []
         let mountsArray = config?["mounts"] as? [[String: Any]] ?? []
@@ -73,6 +78,7 @@ func parseContainerInspect(_ raw: String) -> ContainerInspectFallback? {
 
         let id = inspectStringIn(dict, keys: ["id"]) ?? inspectStringIn(config ?? [:], keys: ["id"])
         let status = inspectStringIn(dict, keys: ["status"])
+            ?? inspectStringIn(statusDict ?? [:], keys: ["state"])
         let image = inspectStringIn(imageDict ?? [:], keys: ["reference"]) ?? inspectStringIn(dict, keys: ["image"])
         let ipv4Address = inspectStringIn(networks.first ?? [:], keys: ["ipv4Address", "ipv4_address"])
         let ipv4Gateway = inspectStringIn(networks.first ?? [:], keys: ["ipv4Gateway", "ipv4_gateway"])

@@ -7,6 +7,42 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-13
+
+### Added
+- Support for the Apple Container CLI 1.0.0 JSON formats (released
+  alongside WWDC 2026), kept backward compatible with older CLIs:
+  - `container list` now reads the nested `status` object
+    (`{state, networks, startedDate}`) in addition to the legacy
+    plain-string `status` and top-level `networks` array; IP addresses
+    are read from `ipv4Address` (CIDR form, prefix stripped) or the
+    legacy `address`.
+  - `container inspect` parsing (typed model and untyped fallback)
+    accepts the same nested `status` shape.
+  - `container image list` reads the nested `configuration` object
+    (`name`, `descriptor`, `creationDate`) in addition to the legacy
+    top-level `reference`/`descriptor`.
+- Background per-container stats history (`ContainerStatsStore`): the
+  polling loop samples `container stats` for every running container, so
+  the Stats tab chart is already populated when opened. History lives in
+  a dedicated `ObservableObject` so frequent samples don't re-render the
+  sidebar, list, or menu bar; it is pruned/cleared when a container
+  stops or is removed.
+
+### Fixed
+- Pipe deadlock on large CLI output. `runCommandBlocking` (in both
+  `ContainerizationWrapper` and `ServiceManager`) now drains the output
+  pipe before `waitUntilExit()`. The CLI 1.0.0 image list (~140 KB)
+  exceeded the 64 KB pipe buffer, so the child blocked on write while
+  the app blocked on exit — the images list silently stayed empty.
+
+### Changed
+- Sidebar rows are less cluttered:
+  - image rows show only the size under the name (the creation date was
+    removed).
+  - container rows show a single subtitle — the IP address when the
+    container is running and has one, otherwise the image reference.
+
 ## [1.3.4] - 2026-06-12
 
 ### Added

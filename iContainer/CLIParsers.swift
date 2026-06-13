@@ -54,15 +54,23 @@ nonisolated enum CLIParsers {
     }
 
     private static func mapImage(_ dict: [String: Any]) -> ContainerImage? {
-        let reference = stringValue(dict, keys: ["reference", "ref"]) ?? ""
+        // container CLI ≤ 0.x puts `reference` and `descriptor` at the top
+        // level; CLI ≥ 1.0 nests them inside `configuration`, with the
+        // reference under `name` and the creation date in `creationDate`.
+        let configuration = dict["configuration"] as? [String: Any]
+        let reference = stringValue(dict, keys: ["reference", "ref"])
+            ?? stringValue(configuration ?? [:], keys: ["name"])
+            ?? ""
         let (name, tag) = splitReference(reference)
         let descriptor = dict["descriptor"] as? [String: Any]
+            ?? configuration?["descriptor"] as? [String: Any]
         let digest = descriptor?["digest"] as? String
         let sizeBytes = intValue(descriptor ?? [:], keys: ["size"])
         let sizeText = stringValue(dict, keys: ["fullSize", "full_size"])
         let annotations = descriptor?["annotations"] as? [String: Any]
         let createdAt = stringValue(annotations ?? [:], keys: ["org.opencontainers.image.created"])
-        let resolvedId = digest ?? reference
+            ?? stringValue(configuration ?? [:], keys: ["creationDate"])
+        let resolvedId = digest ?? stringValue(dict, keys: ["id"]) ?? reference
         guard !resolvedId.isEmpty else { return nil }
         return ContainerImage(
             id: resolvedId,

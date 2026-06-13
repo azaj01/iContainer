@@ -13,6 +13,9 @@ build/
 .swiftpm/
 .build/
 
+# Code coverage raw profiles
+*.profraw
+
 # Design sources (not used by the build; final assets live in
 # iContainer/Assets.xcassets and iContainer/Logo.icon)
 Logo/

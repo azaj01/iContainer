@@ -47,13 +47,31 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 ### Service layer
 - `iContainer/ContainerizationWrapper.swift`: async wrapper around the
   `container` CLI (containers/images/logs/stats/exec/registry). Pure
-  parsing is delegated to `CLIParsers`.
+  parsing is delegated to `CLIParsers`. Owns the `statsStore` and, on
+  every poll tick, samples `container stats` for each running container.
 - `iContainer/ServiceManager.swift`: polls the container system service,
   tracks status and follows logs. Pure parsing is delegated to
   `CLIParsers`.
 - `iContainer/CLIParsers.swift`: single namespace holding every pure
   parser used to read `container` CLI output. Side-effect free and
   exhaustively unit-tested.
+- `iContainer/ContainerStatsStore.swift`: standalone `ObservableObject`
+  holding rolling per-container resource history (CPU/memory/network),
+  kept off the wrapper so frequent stats mutations don't re-render the
+  sidebar/list/menu bar.
+
+### CLI compatibility note
+- The `container` CLI 1.0.0 (WWDC 2026) changed several JSON shapes;
+  parsers accept both old and new forms:
+  - `list`/`inspect`: `status` may be a plain string (≤ 0.x) or a
+    nested object `{state, networks, startedDate}` (≥ 1.0); IP comes
+    from `ipv4Address` (CIDR) or the legacy `address`.
+  - `image list`: reference/descriptor may be top-level (≤ 0.x) or
+    nested under `configuration` (`name`, `descriptor`,
+    `creationDate`) (≥ 1.0).
+- `runCommandBlocking` must drain the output pipe BEFORE
+  `waitUntilExit()` — CLI 1.0.0 outputs can exceed the 64 KB pipe
+  buffer and deadlock otherwise.
 
 ### Per-container detail
 - `iContainer/ContainerDetailView.swift`: thin TabView host for the
@@ -61,7 +79,9 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - `iContainer/ContainerInfoView.swift`: Info tab, including port links
   and mount links.
 - `iContainer/ContainerStatsView.swift`: Stats tab, including chart
-  panel and the stats parser.
+  panel and the stats parser. Reads history from `ContainerStatsStore`
+  (populated in the background) and samples its own container for
+  liveness while open.
 - `iContainer/ContainerShellView.swift`: Shell tab plus the persistent
   `ContainerShellSession` per container.
 - `iContainer/ContainerLogsView.swift`: Logs tab with delta polling.

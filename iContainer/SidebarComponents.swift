@@ -92,15 +92,14 @@ struct ContainerRowView: View {
                     Text(container.name)
                         .font(.headline)
                 }
-                HStack(spacing: 16) {
-                    if let image = container.image {
-                        Label(image, systemImage: "shippingbox")
-                            .font(.caption)
-                    }
-                    if let ip = container.ipAddress {
-                        Label(ip, systemImage: "network")
-                            .font(.caption)
-                    }
+                // One compact subtitle: the IP address when the container
+                // has one (i.e. it is running), otherwise the image reference.
+                if let ip = container.ipAddress {
+                    Label(ip, systemImage: "network")
+                        .font(.caption)
+                } else if let image = container.image {
+                    Label(image, systemImage: "shippingbox")
+                        .font(.caption)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

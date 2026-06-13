@@ -44,6 +44,7 @@ struct iContainerApp: App {
         Window("iContainer", id: "main") {
             ContentView()
                 .environmentObject(containerManager)
+                .environmentObject(containerManager.statsStore)
                 .environmentObject(serviceManager)
                 .environmentObject(appNavigation)
                 .environmentObject(releaseChecker)

@@ -3,40 +3,36 @@ import Charts
 
 /// "Stats" tab of the container detail view.
 ///
-/// Polls `container stats <id> --no-stream` every 3 s and renders the
-/// current sample as both numeric rows and three time-series charts
-/// (CPU %, memory MB, network KB/s). The chart history is cached
-/// per-container in a static dictionary so leaving and re-entering the
-/// tab keeps the curve intact rather than resetting to a single point.
+/// Renders the latest sample as numeric rows plus three time-series charts
+/// (CPU %, memory MB, network KB/s). The series come from `statsStore`,
+/// which is fed in the background for every running container, so the chart
+/// is already populated when the tab opens even if the container has been
+/// running for a while. While the tab is visible it also samples its own
+/// container directly (`sampleStats(for:)`) so the chart stays live at its
+/// own cadence. The charts use a fixed five-minute window anchored to the
+/// newest sample (Activity Monitor-style), so new data enters from the
+/// right edge and scrolls left.
 
 struct ContainerStatsView: View {
     let details: ContainerDetails?
     let containerId: String
     let cpuLimit: Int?
     @EnvironmentObject var containerManager: ContainerizationWrapper
-    @State private var stats: ContainerStats?
-    @State private var isLoading = false
-    @State private var autoRefresh = true
+    @EnvironmentObject var statsStore: ContainerStatsStore
     @State private var refreshTask: Task<Void, Never>?
-    @State private var cpuSeries: [StatPoint] = []
-    @State private var memorySeries: [StatPoint] = []
-    @State private var netSeries: [StatPoint] = []
-    @State private var lastNetTotalBytes: Int64?
-    @State private var lastNetSampleDate: Date?
+    @State private var didAttemptSample = false
 
     private let refreshIntervalNanos: UInt64 = 3_000_000_000
+    private let chartWindowSeconds: TimeInterval = 300
 
-    private struct StatsCache {
-        var stats: ContainerStats?
-        var cpuSeries: [StatPoint]
-        var cpuSeriesIsRaw: Bool
-        var memorySeries: [StatPoint]
-        var netSeries: [StatPoint]
-        var lastNetTotalBytes: Int64?
-        var lastNetSampleDate: Date?
-    }
-
-    private static var cache: [String: StatsCache] = [:]
+    /// History is owned by `ContainerStatsStore` and fed in the background
+    /// for every running container, so opening this tab shows whatever was
+    /// already collected rather than starting from an empty chart.
+    private var history: ContainerStatsStore.History? { statsStore.history(for: containerId) }
+    private var stats: ContainerStats? { history?.latest }
+    private var cpuSeries: [StatPoint] { history?.cpuSeries ?? [] }
+    private var memorySeries: [StatPoint] { history?.memorySeries ?? [] }
+    private var netSeries: [StatPoint] { history?.netSeries ?? [] }
 
     var body: some View {
         GeometryReader { proxy in
@@ -73,36 +69,23 @@ struct ContainerStatsView: View {
 
                                     VStack(alignment: .leading, spacing: 12) {
                                         ChartPanel(title: "CPU %") {
-                                            Chart(cpuSeries) { point in
-                                                LineMark(
-                                                    x: .value("Time", point.time),
-                                                    y: .value("CPU %", normalizedCpuPercentValue(raw: point.value))
-                                                )
-                                            }
-                                            .chartXScale(domain: chartDomain)
-                                            .chartYScale(domain: 0...100)
+                                            StatTimelineChart(
+                                                points: cpuSeries.map {
+                                                    StatPoint(time: $0.time, value: normalizedCpuPercentValue(raw: $0.value))
+                                                },
+                                                domain: chartDomain,
+                                                yDomain: 0...100
+                                            )
                                         }
                                         .frame(height: infoBoxHeight)
 
                                         ChartPanel(title: "Memory (MB)") {
-                                            Chart(memorySeries) { point in
-                                                LineMark(
-                                                    x: .value("Time", point.time),
-                                                    y: .value("Memory", point.value)
-                                                )
-                                            }
-                                            .chartXScale(domain: chartDomain)
+                                            StatTimelineChart(points: memorySeries, domain: chartDomain)
                                         }
                                         .frame(height: chartHeight)
 
                                         ChartPanel(title: "Network (KB/s)") {
-                                            Chart(netSeries) { point in
-                                                LineMark(
-                                                    x: .value("Time", point.time),
-                                                    y: .value("Net KB/s", point.value)
-                                                )
-                                            }
-                                            .chartXScale(domain: chartDomain)
+                                            StatTimelineChart(points: netSeries, domain: chartDomain)
                                         }
                                         .frame(height: chartHeight)
                                     }
@@ -114,7 +97,7 @@ struct ContainerStatsView: View {
                                 .padding(.top, -8)
                                 .frame(width: sectionContentWidth, alignment: .leading)
                                 .frame(height: statsHeight)
-                            } else if isLoading {
+                            } else if !didAttemptSample {
                                 VStack(spacing: 12) {
                                     ProgressView()
                                         .scaleEffect(1.1)
@@ -140,12 +123,10 @@ struct ContainerStatsView: View {
             }
         }
         .onAppear {
-            loadCache()
             startAutoRefresh()
         }
         .onDisappear {
             stopAutoRefresh()
-            saveCache()
         }
     }
 
@@ -176,44 +157,19 @@ struct ContainerStatsView: View {
         return 1
     }
 
+    /// Keeps this container's chart live while the tab is open by sampling
+    /// it directly. The background poll already samples every running
+    /// container, but this guarantees fresh data at the tab's own cadence
+    /// (and works even when global polling is set to "manual").
     private func startAutoRefresh() {
         stopAutoRefresh()
         refreshTask = Task {
             while !Task.isCancelled {
-                if autoRefresh {
-                    await refreshStats()
-                }
+                await containerManager.sampleStats(for: containerId)
+                didAttemptSample = true
                 try? await Task.sleep(nanoseconds: refreshIntervalNanos)
             }
         }
-    }
-
-    private func loadCache() {
-        guard var cached = Self.cache[containerId] else { return }
-        stats = cached.stats
-        if !cached.cpuSeriesIsRaw {
-            let rawFactor = effectiveCoreCount(for: cached.stats?.cpuPercentValue ?? parsePercent(cached.stats?.cpuPercent ?? "") ?? 0)
-            cached.cpuSeries = cached.cpuSeries.map { StatPoint(time: $0.time, value: $0.value * rawFactor) }
-            cached.cpuSeriesIsRaw = true
-            Self.cache[containerId] = cached
-        }
-        cpuSeries = cached.cpuSeries
-        memorySeries = cached.memorySeries
-        netSeries = cached.netSeries
-        lastNetTotalBytes = cached.lastNetTotalBytes
-        lastNetSampleDate = cached.lastNetSampleDate
-    }
-
-    private func saveCache() {
-        Self.cache[containerId] = StatsCache(
-            stats: stats,
-            cpuSeries: cpuSeries,
-            cpuSeriesIsRaw: true,
-            memorySeries: memorySeries,
-            netSeries: netSeries,
-            lastNetTotalBytes: lastNetTotalBytes,
-            lastNetSampleDate: lastNetSampleDate
-        )
     }
 
     private func stopAutoRefresh() {
@@ -221,88 +177,107 @@ struct ContainerStatsView: View {
         refreshTask = nil
     }
 
-    private func refreshStats() async {
-        isLoading = true
-        if let output = await containerManager.fetchContainerStats(containerId: containerId) {
-            if let parsed = parseContainerStats(output) {
-                stats = parsed
-                updateSeries(with: parsed)
-            } else {
-                stats = nil
-            }
-        } else {
-            stats = nil
-        }
-        if let cached = Self.cache[containerId] {
-            applyCache(cached)
-        }
-        isLoading = false
-    }
-
-    private func updateSeries(with parsed: ContainerStats) {
-        let updated = updateCacheSeries(
-            cached: StatsCache(
-                stats: parsed,
-                cpuSeries: cpuSeries,
-                cpuSeriesIsRaw: true,
-                memorySeries: memorySeries,
-                netSeries: netSeries,
-                lastNetTotalBytes: lastNetTotalBytes,
-                lastNetSampleDate: lastNetSampleDate
-            ),
-            with: parsed
-        )
-        applyCache(updated)
-        saveCache()
-    }
-
-    private func updateCacheSeries(cached: StatsCache, with parsed: ContainerStats) -> StatsCache {
-        var updated = cached
-        let now = Date()
-        let rawCpu = parsed.cpuPercentValue ?? parsePercent(parsed.cpuPercent) ?? 0
-        updated.cpuSeries.append(StatPoint(time: now, value: rawCpu))
-        if let memBytes = parsed.memoryUsageBytes {
-            updated.memorySeries.append(StatPoint(time: now, value: Double(memBytes) / 1_048_576.0))
-        }
-        if let rx = parsed.netRxBytes, let tx = parsed.netTxBytes {
-            let total = rx + tx
-            if let lastTotal = updated.lastNetTotalBytes, let lastTime = updated.lastNetSampleDate {
-                let deltaBytes = max(0, total - lastTotal)
-                let elapsed = max(1.0, now.timeIntervalSince(lastTime))
-                let kbPerSec = (Double(deltaBytes) / 1024.0) / elapsed
-                updated.netSeries.append(StatPoint(time: now, value: kbPerSec))
-            } else {
-                updated.netSeries.append(StatPoint(time: now, value: 0))
-            }
-            updated.lastNetTotalBytes = total
-            updated.lastNetSampleDate = now
-        }
-        let retentionCutoff = now.addingTimeInterval(-600)
-        updated.cpuSeries = updated.cpuSeries.filter { $0.time >= retentionCutoff }
-        updated.memorySeries = updated.memorySeries.filter { $0.time >= retentionCutoff }
-        updated.netSeries = updated.netSeries.filter { $0.time >= retentionCutoff }
-        return updated
-    }
-
-    private func applyCache(_ cached: StatsCache) {
-        stats = cached.stats
-        cpuSeries = cached.cpuSeries
-        memorySeries = cached.memorySeries
-        netSeries = cached.netSeries
-        lastNetTotalBytes = cached.lastNetTotalBytes
-        lastNetSampleDate = cached.lastNetSampleDate
-    }
-
+    /// Fixed five-minute window anchored to the newest sample, Activity
+    /// Monitor-style: the span never stretches to fit the data, so fresh
+    /// samples enter at the right edge and scroll left as time passes.
     private var chartDomain: ClosedRange<Date> {
-        let now = Date()
-        let earliest = now.addingTimeInterval(-300)
-        let minTime = [
-            cpuSeries.first?.time,
-            memorySeries.first?.time,
-            netSeries.first?.time
-        ].compactMap { $0 }.min() ?? now
-        let start = max(earliest, minTime)
-        return start...now
+        let end = [
+            cpuSeries.last?.time,
+            memorySeries.last?.time,
+            netSeries.last?.time
+        ].compactMap { $0 }.max() ?? Date()
+        return end.addingTimeInterval(-chartWindowSeconds)...end
+    }
+}
+
+// MARK: - Timeline chart
+
+/// Line + soft area chart over a fixed time window. Consecutive samples
+/// further apart than `gapThreshold` (e.g. after leaving and re-entering
+/// the tab) are split into separate line segments instead of being joined
+/// by a misleading straight line; a segment with a single sample is drawn
+/// as a dot so the very first poll is visible immediately.
+private struct StatTimelineChart: View {
+    let points: [StatPoint]
+    let domain: ClosedRange<Date>
+    var yDomain: ClosedRange<Double>? = nil
+
+    /// Samples arrive every ~3 s; anything beyond this is a real gap.
+    private let gapThreshold: TimeInterval = 10
+
+    private struct SegmentPoint: Identifiable {
+        let id: UUID
+        let segment: Int
+        let time: Date
+        let value: Double
+        var isIsolated: Bool
+    }
+
+    private var segmentedPoints: [SegmentPoint] {
+        var result: [SegmentPoint] = []
+        var segment = 0
+        var segmentSize = 0
+        for point in points {
+            if let last = result.last {
+                if point.time.timeIntervalSince(last.time) > gapThreshold {
+                    segment += 1
+                    segmentSize = 0
+                }
+            }
+            segmentSize += 1
+            result.append(SegmentPoint(
+                id: point.id,
+                segment: segment,
+                time: point.time,
+                value: point.value,
+                isIsolated: segmentSize == 1
+            ))
+            if segmentSize == 2 {
+                // The previous point is no longer alone in its segment.
+                result[result.count - 2].isIsolated = false
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        let chart = Chart(segmentedPoints) { point in
+            if point.isIsolated {
+                PointMark(
+                    x: .value("Time", point.time),
+                    y: .value("Value", point.value)
+                )
+                .symbolSize(20)
+                .foregroundStyle(Color.accentColor)
+            } else {
+                AreaMark(
+                    x: .value("Time", point.time),
+                    y: .value("Value", point.value),
+                    series: .value("Segment", point.segment)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.25), Color.accentColor.opacity(0.02)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                LineMark(
+                    x: .value("Time", point.time),
+                    y: .value("Value", point.value),
+                    series: .value("Segment", point.segment)
+                )
+                .foregroundStyle(Color.accentColor)
+            }
+        }
+        .chartXScale(domain: domain)
+        .chartLegend(.hidden)
+
+        if let yDomain {
+            chart.chartYScale(domain: yDomain)
+        } else {
+            chart
+        }
     }
 }
 

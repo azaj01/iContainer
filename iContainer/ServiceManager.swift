@@ -242,8 +242,10 @@ private extension ServiceManager {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
+        // Drain the pipe BEFORE waiting: outputs larger than the 64 KB
+        // pipe buffer (e.g. system logs) deadlock if we wait first.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         let output = String(data: data, encoding: .utf8) ?? ""
         return (output, process.terminationStatus)
     }

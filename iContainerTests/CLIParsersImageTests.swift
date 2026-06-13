@@ -108,4 +108,33 @@ final class CLIParsersImageTests: XCTestCase {
         XCTAssertEqual(images.count, 1)
         XCTAssertEqual(images.first?.name, "ok")
     }
+
+    /// container CLI ≥ 1.0 nests reference and descriptor inside a
+    /// `configuration` object (`name`, `descriptor`, `creationDate`).
+    func testParseImageListModernConfigurationFormat() {
+        let json = """
+        [
+          {
+            "configuration": {
+              "creationDate": "2026-02-19T01:30:46Z",
+              "descriptor": {
+                "digest": "sha256:222d1445",
+                "mediaType": "application/vnd.oci.image.index.v1+json",
+                "size": 511
+              },
+              "name": "container-registry.oracle.com/os/oraclelinux:9-slim"
+            },
+            "id": "222d1445",
+            "variants": []
+          }
+        ]
+        """
+        let images = CLIParsers.parseImageList(json)
+        XCTAssertEqual(images.count, 1)
+        XCTAssertEqual(images.first?.id, "sha256:222d1445")
+        XCTAssertEqual(images.first?.name, "container-registry.oracle.com/os/oraclelinux")
+        XCTAssertEqual(images.first?.tag, "9-slim")
+        XCTAssertEqual(images.first?.sizeBytes, 511)
+        XCTAssertEqual(images.first?.createdAt, "2026-02-19T01:30:46Z")
+    }
 }

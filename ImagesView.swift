@@ -59,16 +59,8 @@ struct ImageRowView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(image.displayName)
                         .font(.headline)
-                    HStack(spacing: 16) {
-                        Text(rowInspectDetails?.variantsTotalText ?? image.displaySize)
-                            .font(.caption)
-                        let created = image.displayCreated
-                        if created != "-" {
-                            Text(created)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    Text(rowInspectDetails?.variantsTotalText ?? image.displaySize)
+                        .font(.caption)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())

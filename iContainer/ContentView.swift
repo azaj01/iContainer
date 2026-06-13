@@ -1344,6 +1344,7 @@ struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
             .environmentObject(ContainerizationWrapper())
+            .environmentObject(ContainerStatsStore())
             .environmentObject(ServiceManager())
             .environmentObject(AppNavigation())
             .environmentObject(ContainerReleaseChecker())

@@ -19,6 +19,10 @@ class ContainerizationWrapper: ObservableObject {
     @Published var lastErrorMessage: String?
     @Published var lastBuildOutput: String?
     @Published var registryAuthState: RegistryAuthState = .unknown
+    /// Background-collected resource history per container. Kept as its own
+    /// `ObservableObject` so per-tick stats samples don't re-render every
+    /// view that observes this wrapper. See `ContainerStatsStore`.
+    let statsStore = ContainerStatsStore()
     private let logger = Logger(label: "iContainer")
     private var timer: Timer?
     private var isPolling = false
@@ -64,10 +68,38 @@ class ContainerizationWrapper: ObservableObject {
         defer { isPolling = false }
 
         await refreshContainers()
+        await sampleRunningContainerStats()
         await refreshImages()
         await refreshRegistryAuthStatus()
     }
-    
+
+    // MARK: - Stats sampling
+
+    /// Samples `container stats` for every running container and appends to
+    /// `statsStore`, so the Stats tab's chart is already populated when the
+    /// user opens it — even if the container has been running for a while.
+    /// Driven by the polling loop; the open Stats tab additionally samples
+    /// its own container via `sampleStats(for:)` for liveness.
+    private func sampleRunningContainerStats() async {
+        // Keep history only for running containers: stopping (or deleting) a
+        // container drops its history, so a later restart charts fresh
+        // instead of bridging the downtime with a stale flat line.
+        let running = containers.filter { $0.status == .running }
+        statsStore.prune(keeping: Set(running.map { $0.id }))
+        for container in running {
+            await sampleStats(for: container.id)
+        }
+    }
+
+    /// Fetches and records a single stats sample for `id`. Safe to call for
+    /// a stopped container — the CLI call simply fails and nothing is added.
+    func sampleStats(for id: String) async {
+        if let output = await fetchContainerStats(containerId: id),
+           let parsed = parseContainerStats(output) {
+            statsStore.record(stats: parsed, for: id)
+        }
+    }
+
     // MARK: - Terminal command runner
     private func runCommand(_ arguments: [String], standardInput: String? = nil) async throws -> String {
         let result = try await Task.detached(priority: .utility) {
@@ -105,10 +137,13 @@ class ContainerizationWrapper: ObservableObject {
             }
             try? inputPipe.fileHandleForWriting.close()
         }
-        process.waitUntilExit()
+        // Drain the pipe BEFORE waiting: container CLI ≥ 1.0 can emit more
+        // than the 64 KB pipe buffer (image list is ~140 KB), and waiting
+        // first deadlocks — the child blocks on write, we block on exit.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         guard let output = String(data: data, encoding: .utf8) else {
-            throw NSError(domain: "iContainer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Impossibile leggere output comando"])
+            throw NSError(domain: "iContainer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to read command output"])
         }
         return (output, process.terminationStatus)
     }
@@ -147,7 +182,7 @@ class ContainerizationWrapper: ObservableObject {
                         name: cli.configuration?.hostname ?? cli.configuration?.id ?? "",
                         status: cli.status == "running" ? .running : .stopped,
                         image: cli.configuration?.image?.reference,
-                        ipAddress: cli.networks?.first?.address
+                        ipAddress: cli.networks?.first?.resolvedAddress
                     )
                 }
                 .sorted { lhs, rhs in
@@ -186,6 +221,9 @@ class ContainerizationWrapper: ObservableObject {
             guard let previous = lastKnownStatuses[container.id] else { continue }
             if previous == .running, container.status == .stopped {
                 NotificationService.shared.notifyContainerStopped(name: container.name)
+                // Discard the chart history so a later restart begins fresh
+                // rather than bridging the downtime with a stale flat line.
+                statsStore.clearHistory(for: container.id)
             }
         }
     }
@@ -792,11 +830,11 @@ enum DependencyError: Error, Identifiable {
 
 
 // MARK: - Support struct for CLI JSON parsing
-struct ContainerCLI: Decodable {
+struct ContainerCLI {
     let status: String?
     let configuration: Configuration?
     let networks: [Network]?
-    
+
     struct Configuration: Decodable {
         let id: String?
         let hostname: String?
@@ -807,6 +845,43 @@ struct ContainerCLI: Decodable {
     }
     struct Network: Decodable {
         let address: String?
+        let ipv4Address: String?
+
+        /// Preferred display address: container CLI ≤ 0.x exposes
+        /// `address`, ≥ 1.0 exposes `ipv4Address` in CIDR form
+        /// (`192.168.64.2/24`) — the prefix length is stripped.
+        var resolvedAddress: String? {
+            let raw = ipv4Address ?? address
+            return raw?.split(separator: "/").first.map(String.init)
+        }
+    }
+}
+
+extension ContainerCLI: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case status, configuration, networks
+    }
+
+    /// container CLI ≥ 1.0 moved `status` from a plain string to an
+    /// object (`{state, networks, startedDate}`) and dropped the
+    /// top-level `networks` array; both shapes are accepted here.
+    private struct StatusObject: Decodable {
+        let state: String?
+        let networks: [Network]?
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configuration = try container.decodeIfPresent(Configuration.self, forKey: .configuration)
+        let legacyNetworks = try? container.decodeIfPresent([Network].self, forKey: .networks)
+        if let legacyStatus = try? container.decodeIfPresent(String.self, forKey: .status) {
+            status = legacyStatus
+            networks = legacyNetworks
+        } else {
+            let statusObject = try? container.decodeIfPresent(StatusObject.self, forKey: .status)
+            status = statusObject?.state
+            networks = legacyNetworks ?? statusObject?.networks
+        }
     }
 }
 
@@ -818,7 +893,7 @@ struct ContainerEditableSettings: Equatable {
     var environment: [String]
 }
 
-struct ContainerDetails: Decodable, Equatable {
+struct ContainerDetails: Equatable {
     let status: String?
     let networks: [NetworkInfo]?
     let configuration: ConfigurationData?
@@ -870,5 +945,46 @@ struct ContainerDetails: Decodable, Equatable {
             guard let host = socket.hostPort, let container = socket.containerPort, let proto = socket.proto else { return nil }
             return "\(host):\(container)/\(proto)"
         } ?? []
+    }
+}
+
+extension ContainerDetails: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case status, networks, configuration
+    }
+
+    /// Accepts both inspect output shapes: container CLI ≤ 0.x uses a
+    /// plain `status` string plus a top-level `networks` array with an
+    /// `address` field; CLI ≥ 1.0 nests `{state, networks}` inside
+    /// `status`, with addresses under `ipv4Address` in CIDR form.
+    private struct StatusObject: Decodable {
+        let state: String?
+        let networks: [RuntimeNetwork]?
+    }
+
+    private struct RuntimeNetwork: Decodable {
+        let address: String?
+        let ipv4Address: String?
+
+        var normalizedAddress: String? {
+            let raw = ipv4Address ?? address
+            return raw?.split(separator: "/").first.map(String.init)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configuration = try container.decodeIfPresent(ConfigurationData.self, forKey: .configuration)
+        let legacyNetworks = try? container.decodeIfPresent([NetworkInfo].self, forKey: .networks)
+        if let legacyStatus = try? container.decodeIfPresent(String.self, forKey: .status) {
+            status = legacyStatus
+            networks = legacyNetworks
+        } else {
+            let statusObject = try? container.decodeIfPresent(StatusObject.self, forKey: .status)
+            status = statusObject?.state
+            networks = legacyNetworks ?? statusObject?.networks?.map {
+                NetworkInfo(address: $0.normalizedAddress)
+            }
+        }
     }
 }
