@@ -31,6 +31,14 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 - **Menu bar extra** — control containers and the service without opening the main window.
 - **Keyboard shortcuts** — full menu bar command set (⌘N new container, ⇧⌘P pull image, ⌘1–⌘4 detail tabs, and more).
 
+## Roadmap
+
+- 🚧 **Container machines** — support for the new container machines
+  announced at WWDC 2026 is on the way.
+
+(It's a hobby project, so "on the way" runs at hobby-project speed — but
+it's coming. Ideas and PRs welcome.)
+
 ## Requirements
 
 - macOS 26 or later (Apple silicon)
