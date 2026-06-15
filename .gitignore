@@ -25,3 +25,6 @@ docs/RECENT_CHANGES.md
 
 # Release artifacts (attached to GitHub releases, not tracked)
 dist/
+
+# Draft/work-in-progress screenshots (final assets attached elsewhere)
+screenshots/

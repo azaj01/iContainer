@@ -1,8 +1,21 @@
 # iContainer
 
+<!-- The release badge is dynamic — shields.io reads it from the GitHub
+     API and updates on each published release once the repo is public. -->
+[![Latest release](https://img.shields.io/github/v/release/nico81/iContainer?sort=semver)](https://github.com/nico81/iContainer/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform: macOS 26+](https://img.shields.io/badge/platform-macOS%2026%2B-lightgrey?logo=apple)
+![Built with SwiftUI](https://img.shields.io/badge/SwiftUI-%E2%9C%93-orange?logo=swift&logoColor=white)
+![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded%20with-Claude%20Code-8A2BE2)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/nicoemanuelli)
+
 A native macOS app to manage [Apple Container](https://github.com/apple/container) workloads — containers, images, logs, stats, and an interactive shell — built with SwiftUI on top of the official `container` CLI.
 
-<!-- screenshot -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/home-light.png">
+  <img alt="iContainer dashboard" src="docs/images/home-dark.png" width="900">
+</picture>
 
 ## Features
 
@@ -46,7 +59,7 @@ If the CLI is missing, the app shows a setup screen with a download link instead
 ## Building from source
 
 ```sh
-git clone https://github.com/<you>/iContainer.git
+git clone https://github.com/nico81/iContainer.git
 cd iContainer
 open iContainer.xcodeproj
 ```
@@ -69,6 +82,20 @@ xcodebuild -project iContainer.xcodeproj -scheme iContainer -testPlan iContainer
 - [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) — architecture and component map
 - [docs/UI_UX_GUIDELINES.md](docs/UI_UX_GUIDELINES.md) — UI/UX conventions
 - [docs/VERSIONING.md](docs/VERSIONING.md) — release workflow
+
+## Built with vibes 🤖
+
+Full disclosure: iContainer was **vibe-coded** — designed and written
+hand-in-hand with [Claude Code](https://claude.com/claude-code). The ideas,
+the direction, and every "no, not like that" are human; a lot of the typing
+isn't. It ships with unit tests and gets manually run on each change, but
+it's a hobby project built for fun on top of brand-new Apple tech — so read
+the code, kick the tires, and don't run it anywhere you'd cry about. PRs and
+issues very welcome.
+
+If it saves you some clicks, you can
+[buy me a coffee](https://www.buymeacoffee.com/nicoemanuelli) ☕ — entirely
+optional, always appreciated.
 
 ## License
 
