@@ -21,6 +21,8 @@ class ContainerizationWrapper: ObservableObject {
     @Published var missingDependencies: [DependencyError] = []
     @Published var images: [ContainerImage] = []
     @Published var updatingImageIDs: Set<String> = []
+    @Published var machines: [Machine] = []
+    @Published var updatingMachineIDs: Set<String> = []
     @Published var lastErrorMessage: String?
     @Published var lastBuildOutput: String?
     @Published var registryAuthState: RegistryAuthState = .unknown
@@ -76,6 +78,7 @@ class ContainerizationWrapper: ObservableObject {
         await sampleRunningContainerStats()
         await sampleServiceStats()
         await refreshImages()
+        await refreshMachines()
         await refreshRegistryAuthStatus()
     }
 
@@ -903,6 +906,183 @@ class ContainerizationWrapper: ObservableObject {
                 lastErrorMessage = error.localizedDescription
                 return nil
             }
+        }
+    }
+
+    // MARK: - Machine Management
+
+    func refreshMachines() async {
+        do {
+            let output = try await runCommand(["machine", "list", "--format", "json"])
+            let parsed = CLIParsers.parseMachineList(output)
+                .sorted { lhs, rhs in
+                    let lhsPriority = lhs.status == .running ? 0 : 1
+                    let rhsPriority = rhs.status == .running ? 0 : 1
+                    if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+                    return lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
+                }
+            if self.machines != parsed {
+                self.machines = parsed
+            }
+        } catch {
+            logger.error("Failed to refresh machines: \(error)")
+        }
+    }
+
+    func inspectMachine(machineId: String) async -> MachineDetails? {
+        do {
+            let output = try await runCommand(["machine", "inspect", machineId])
+            return CLIParsers.parseMachineDetails(output)
+        } catch {
+            logger.error("Failed to inspect machine: \(error)")
+            return nil
+        }
+    }
+
+    /// Boots a stopped machine. There is no `machine start`; `machine run -d`
+    /// boots the machine and detaches, leaving it running.
+    func startMachine(machineId: String) async {
+        updatingMachineIDs.insert(machineId)
+        do {
+            _ = try await runCommand(["machine", "run", "-n", machineId, "-d", "/bin/true"])
+            await refreshMachines()
+        } catch {
+            logger.error("Failed to start machine: \(error)")
+            lastErrorMessage = error.localizedDescription
+            NotificationService.shared.notifyActionFailed(
+                action: "Start", target: machineId, message: error.localizedDescription
+            )
+        }
+        updatingMachineIDs.remove(machineId)
+    }
+
+    func stopMachine(machineId: String) async {
+        updatingMachineIDs.insert(machineId)
+        do {
+            _ = try await runCommand(["machine", "stop", machineId])
+            await refreshMachines()
+        } catch {
+            logger.error("Failed to stop machine: \(error)")
+            lastErrorMessage = error.localizedDescription
+            NotificationService.shared.notifyActionFailed(
+                action: "Stop", target: machineId, message: error.localizedDescription
+            )
+        }
+        updatingMachineIDs.remove(machineId)
+    }
+
+    func deleteMachine(machineId: String) async {
+        guard !machineId.isEmpty else {
+            lastErrorMessage = "Cannot delete: machine id is empty."
+            return
+        }
+        updatingMachineIDs.insert(machineId)
+        do {
+            _ = try await runCommand(["machine", "delete", machineId])
+            await refreshMachines()
+        } catch {
+            logger.error("Failed to delete machine: \(error)")
+            lastErrorMessage = error.localizedDescription
+        }
+        updatingMachineIDs.remove(machineId)
+    }
+
+    func setDefaultMachine(machineId: String) async {
+        updatingMachineIDs.insert(machineId)
+        do {
+            _ = try await runCommand(["machine", "set-default", machineId])
+            await refreshMachines()
+        } catch {
+            logger.error("Failed to set default machine: \(error)")
+            lastErrorMessage = error.localizedDescription
+        }
+        updatingMachineIDs.remove(machineId)
+    }
+
+    /// Applies configuration changes (cpus / memory / home-mount). Each takes
+    /// effect after the machine is restarted.
+    func setMachineConfig(machineId: String, cpus: String?, memory: String?, homeMount: String?) async -> Bool {
+        var settings: [String] = []
+        if let cpus = cpus?.trimmingCharacters(in: .whitespacesAndNewlines), !cpus.isEmpty {
+            settings.append("cpus=\(cpus)")
+        }
+        if let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
+            settings.append("memory=\(memory)")
+        }
+        if let homeMount = homeMount?.trimmingCharacters(in: .whitespacesAndNewlines), !homeMount.isEmpty {
+            settings.append("home-mount=\(homeMount)")
+        }
+        guard !settings.isEmpty else { return false }
+
+        updatingMachineIDs.insert(machineId)
+        defer { updatingMachineIDs.remove(machineId) }
+        do {
+            _ = try await runCommand(["machine", "set", "-n", machineId] + settings)
+            await refreshMachines()
+            return true
+        } catch {
+            logger.error("Failed to set machine config: \(error)")
+            lastErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Creates (and optionally boots) a machine. Returns the machine name on
+    /// success so the caller can navigate to it.
+    @discardableResult
+    func createMachine(
+        image: String,
+        name: String?,
+        cpus: String?,
+        memory: String?,
+        homeMount: String?,
+        setDefault: Bool,
+        boot: Bool
+    ) async -> String? {
+        let trimmedImage = image.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedImage.isEmpty else {
+            lastErrorMessage = "Image is required."
+            return nil
+        }
+
+        var args: [String] = ["machine", "create"]
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedName.isEmpty { args += ["--name", trimmedName] }
+        if let cpus = cpus?.trimmingCharacters(in: .whitespacesAndNewlines), !cpus.isEmpty {
+            args += ["--cpus", cpus]
+        }
+        if let memory = memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
+            args += ["--memory", memory]
+        }
+        if let homeMount = homeMount?.trimmingCharacters(in: .whitespacesAndNewlines), !homeMount.isEmpty {
+            args += ["--home-mount", homeMount]
+        }
+        if setDefault { args.append("--set-default") }
+        if !boot { args.append("--no-boot") }
+        args.append(trimmedImage)
+
+        do {
+            let output = try await runCommand(args)
+            await refreshMachines()
+            let reported = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedName.isEmpty { return trimmedName }
+            return reported.isEmpty ? nil : reported
+        } catch {
+            logger.error("Failed to create machine: \(error)")
+            lastErrorMessage = error.localizedDescription
+            if Self.isRegistryAuthError(error.localizedDescription) {
+                registryAuthState = .notAuthenticated
+            }
+            return nil
+        }
+    }
+
+    func machineLogs(machineId: String) async -> String? {
+        do {
+            return try await runCommand(["machine", "logs", machineId])
+        } catch {
+            logger.error("Failed to fetch machine logs: \(error)")
+            return nil
         }
     }
 }
