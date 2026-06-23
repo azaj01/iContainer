@@ -95,6 +95,8 @@ struct ContentView: View {
     @State private var sidebarSearchQuery: String = ""
     @State private var containerStatusFilter: ContainerStatusFilter = .all
     @State private var showingContainerFilterPopover = false
+    @State private var machineStatusFilter: ContainerStatusFilter = .all
+    @State private var showingMachineFilterPopover = false
     // Mirrors `SettingsManager.sidebarTinted` via its UserDefaults key, so
     // toggling the preference live-updates the sidebar wash in both windows.
     @AppStorage(SettingsManager.Keys.sidebarTinted) private var sidebarTinted = SettingsManager.Defaults.sidebarTinted
@@ -143,9 +145,15 @@ struct ContentView: View {
     /// on the machine name). An empty query returns all machines.
     private var filteredMachines: [Machine] {
         let query = sidebarSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return containerManager.machines }
         return containerManager.machines.filter { machine in
-            machine.id.localizedCaseInsensitiveContains(query)
+            switch machineStatusFilter {
+            case .all: break
+            case .running where machine.status != .running: return false
+            case .stopped where machine.status != .stopped: return false
+            default: break
+            }
+            guard !query.isEmpty else { return true }
+            return machine.id.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -515,6 +523,70 @@ struct ContentView: View {
                 }
             }
             Section {
+                DisclosureGroup(isExpanded: $isMachinesExpanded) {
+                    if serviceManager.isServiceRunning {
+                        ForEach(filteredMachines) { machine in
+                            NavigationLink(value: SidebarSelection.machine(MachineNavigationTarget(id: machine.id, tab: 0))) {
+                                MachineRowView(
+                                    machine: machine,
+                                    onNavigateToTab: { tab in
+                                        selection = .machine(MachineNavigationTarget(id: machine.id, tab: tab))
+                                    },
+                                    onEditConfig: {
+                                        openEditMachineSheet(machineId: machine.id)
+                                    }
+                                )
+                            }
+                        }
+                        if filteredMachines.isEmpty && (!sidebarSearchQuery.isEmpty || machineStatusFilter != .all) {
+                            Text("No matching machines")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        EmptyView()
+                    }
+                } label: {
+                    HStack {
+                        Text("Machines")
+                        Spacer()
+                        if serviceManager.isServiceRunning {
+                            Button {
+                                showingMachineFilterPopover = true
+                            } label: {
+                                Image(systemName: machineStatusFilter == .all
+                                      ? "line.3.horizontal.decrease.circle"
+                                      : "line.3.horizontal.decrease.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Filter machines by status")
+                            .popover(isPresented: $showingMachineFilterPopover, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    ForEach(ContainerStatusFilter.allCases) { filter in
+                                        Button {
+                                            machineStatusFilter = filter
+                                            showingMachineFilterPopover = false
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "checkmark")
+                                                    .frame(width: 12)
+                                                    .opacity(filter == machineStatusFilter ? 1 : 0)
+                                                Text(filter.rawValue)
+                                                Spacer()
+                                            }
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(8)
+                                .frame(minWidth: 140)
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
                 DisclosureGroup(isExpanded: $isImagesExpanded) {
                     if serviceManager.isServiceRunning {
                         ForEach(filteredImages) { image in
@@ -545,46 +617,6 @@ struct ContentView: View {
                             }
                             .buttonStyle(.borderless)
                             .disabled(isPullingImage)
-                        }
-                    }
-                }
-            }
-            Section {
-                DisclosureGroup(isExpanded: $isMachinesExpanded) {
-                    if serviceManager.isServiceRunning {
-                        ForEach(filteredMachines) { machine in
-                            NavigationLink(value: SidebarSelection.machine(MachineNavigationTarget(id: machine.id, tab: 0))) {
-                                MachineRowView(
-                                    machine: machine,
-                                    onNavigateToTab: { tab in
-                                        selection = .machine(MachineNavigationTarget(id: machine.id, tab: tab))
-                                    },
-                                    onEditConfig: {
-                                        openEditMachineSheet(machineId: machine.id)
-                                    }
-                                )
-                            }
-                        }
-                        if filteredMachines.isEmpty && !sidebarSearchQuery.isEmpty {
-                            Text("No matching machines")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        EmptyView()
-                    }
-                } label: {
-                    HStack {
-                        Text("Machines")
-                        Spacer()
-                        if serviceManager.isServiceRunning {
-                            Button {
-                                showingCreateMachineSheet = true
-                            } label: {
-                                Image(systemName: "plus")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Create machine")
                         }
                     }
                 }
@@ -703,15 +735,24 @@ struct ContentView: View {
     private var addToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             if serviceManager.isServiceRunning {
-                Button {
-                    createErrorMessage = nil
-                    containerManager.lastErrorMessage = nil
-                    containerManager.lastBuildOutput = nil
-                    showingCreateContainerSheet = true
+                Menu {
+                    Button {
+                        createErrorMessage = nil
+                        containerManager.lastErrorMessage = nil
+                        containerManager.lastBuildOutput = nil
+                        showingCreateContainerSheet = true
+                    } label: {
+                        Label("New Container…", systemImage: "shippingbox")
+                    }
+                    Button {
+                        showingCreateMachineSheet = true
+                    } label: {
+                        Label("New Machine…", systemImage: "cpu")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("Create container")
+                .help("Create a container or machine")
             }
 
             Button {
