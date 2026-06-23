@@ -71,9 +71,9 @@ struct ContentView: View {
     @State private var isCreatingContainer = false
     @State private var createErrorMessage: String?
     @State private var shouldOpenRegistryLoginAfterCreateSheet = false
-    @State private var isContainersExpanded = true
-    @State private var isImagesExpanded = true
-    @State private var isMachinesExpanded = true
+    @AppStorage(SettingsManager.Keys.containersExpanded) private var isContainersExpanded = true
+    @AppStorage(SettingsManager.Keys.imagesExpanded) private var isImagesExpanded = true
+    @AppStorage(SettingsManager.Keys.machinesExpanded) private var isMachinesExpanded = true
     @State private var showingCreateMachineSheet = false
     @State private var showingEditMachineSheet = false
     @State private var editingMachineId: String?
@@ -551,8 +551,8 @@ struct ContentView: View {
                         .frame(minWidth: 140)
                     }
                 }
+                .contextMenu { sectionReorderMenu(.containers) }
             }
-            .contextMenu { sectionReorderMenu(.containers) }
         }
     }
 
@@ -619,8 +619,8 @@ struct ContentView: View {
                         }
                     }
                 }
+                .contextMenu { sectionReorderMenu(.machines) }
             }
-            .contextMenu { sectionReorderMenu(.machines) }
         }
     }
 
@@ -658,8 +658,8 @@ struct ContentView: View {
                         .disabled(isPullingImage)
                     }
                 }
+                .contextMenu { sectionReorderMenu(.images) }
             }
-            .contextMenu { sectionReorderMenu(.images) }
         }
     }
 
@@ -758,6 +758,7 @@ struct ContentView: View {
     private var welcomeDashboard: some View {
         WelcomeDashboardView(
             containers: containerManager.containers,
+            machines: containerManager.machines,
             imageCount: containerManager.images.count,
             isServiceRunning: serviceManager.isServiceRunning,
             onCreateContainer: {
@@ -765,6 +766,9 @@ struct ContentView: View {
                 containerManager.lastErrorMessage = nil
                 containerManager.lastBuildOutput = nil
                 showingCreateContainerSheet = true
+            },
+            onCreateMachine: {
+                showingCreateMachineSheet = true
             },
             onPullImage: {
                 showingPullImageAlert = true
@@ -774,6 +778,9 @@ struct ContentView: View {
             },
             onSelectContainer: { container in
                 selection = .container(ContainerNavigationTarget(id: container.id, tab: 0))
+            },
+            onSelectMachine: { machine in
+                selection = .machine(MachineNavigationTarget(id: machine.id, tab: 0))
             }
         )
         // Keep the titlebar clean: the dashboard has its own "iContainer"

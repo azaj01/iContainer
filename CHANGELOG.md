@@ -7,6 +7,55 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-23
+
+### Added
+- **Container machines** — full management of Apple's container machines
+  (the Linux VMs that host containers), introduced at WWDC 2026:
+  - A dedicated **Machines** sidebar section (between Containers and
+    Images) listing machines with status, an inline start/stop button,
+    and a subtitle showing `CPU · RAM · IP` (IP shown when running).
+  - Per-machine detail with **Info / Shell / Logs** tabs:
+    - **Info**: status, configuration (CPUs, memory, disk, home mount),
+      network (IP with a copy button, when running), image reference and
+      platform, created date, and user (with uid/gid).
+    - **Shell**: a persistent interactive session
+      (`container machine run -n <id> -i`), mirroring the container Shell
+      tab; it boots the machine if stopped.
+    - **Logs**: `container machine logs` with the same layout as the
+      container Logs tab (filter, Follow, refresh/clear/copy, terminal
+      font/contrast).
+  - **Create** machines (image, name with live validation, cpus, memory,
+    home-mount, boot toggle), **edit configuration** (cpus/memory/
+    home-mount, with a "restart to apply" prompt), start, stop, and
+    delete — from the sidebar, the detail view, the menu bar, and the
+    dashboard.
+  - Status filter (All / Running / Stopped) on the Machines section,
+    matching Containers.
+  - `Machine` / `MachineDetails` models and
+    `CLIParsers.parseMachineList` / `parseMachineDetails`, unit-tested.
+- Unified creation: the toolbar **+** is now a menu offering *New
+  Container…* and *New Machine…*; the dashboard has both a Create
+  Container and a Create Machine action.
+- Dashboard "Available" area split into two columns — containers on the
+  left, machines on the right — plus a Machines metric tile, with
+  Running/Stopped counts now spanning containers and machines.
+- Menu bar extra lists machines in their own labelled section alongside
+  containers, with the same homogeneous action menu
+  (`MachineActionsMenuItems`).
+- Reorderable sidebar sections (Containers / Machines / Images) via a
+  header context menu, with the order persisted; the section
+  expand/collapse state and the status filters are persisted too.
+
+### Changed
+- Container sidebar rows keep the box icon in the subtitle even when
+  showing the IP, so they still read as "containers" at a glance.
+
+### Fixed
+- Logs tabs (container and machine): the reload spinner now occupies a
+  fixed-size slot, so it no longer resizes the toolbar row or nudges the
+  terminal output while following.
+
 ## [1.6.0] - 2026-06-16
 
 ### Added

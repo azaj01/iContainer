@@ -124,6 +124,9 @@ final class SettingsManager: ObservableObject {
         static let sidebarSectionOrder = "settings.sidebarSectionOrder"
         static let containerStatusFilter = "settings.containerStatusFilter"
         static let machineStatusFilter = "settings.machineStatusFilter"
+        static let containersExpanded = "settings.containersExpanded"
+        static let machinesExpanded = "settings.machinesExpanded"
+        static let imagesExpanded = "settings.imagesExpanded"
     }
 
     nonisolated enum Defaults {
@@ -294,7 +297,8 @@ final class SettingsManager: ObservableObject {
             Keys.terminalFontName, Keys.terminalFontSize, Keys.forceBlackTerminal,
             Keys.customCliPath, Keys.defaultRegistry, Keys.quitBehavior,
             Keys.hideXPCNoiseInLogs, Keys.sidebarTinted,
-            Keys.sidebarSectionOrder, Keys.containerStatusFilter, Keys.machineStatusFilter
+            Keys.sidebarSectionOrder, Keys.containerStatusFilter, Keys.machineStatusFilter,
+            Keys.containersExpanded, Keys.machinesExpanded, Keys.imagesExpanded
         ]
         for key in allKeys { store.removeObject(forKey: key) }
 

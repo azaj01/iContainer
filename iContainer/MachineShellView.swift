@@ -173,8 +173,9 @@ struct MachineShellView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let shellHeight = max(280, proxy.size.height - 180)
+            let shellHeight = max(280, proxy.size.height - 240)
             VStack(alignment: .leading, spacing: 16) {
+                MachineHeaderView(machineId: machineId)
                 DetailSection(title: "Shell", icon: "terminal") {
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {

@@ -70,6 +70,38 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
 - Create and edit forms must stay visually coherent and share the same ports interaction.
 - Create/edit sheets should be resizable on macOS, with a useful minimum size and centered initial presentation.
 
+## Container Machines
+- Machines are first-class alongside containers: their own sidebar
+  section (between Containers and Images), detail view, create/edit
+  sheets, menu bar entries, and dashboard presence.
+- Reuse container patterns for parity: `MachineActionsMenuItems` mirrors
+  `ContainerActionsMenuItems`; the detail tabs are `Info / Shell / Logs`
+  (no Stats — the CLI exposes no `machine stats`); the Logs tab matches
+  the container Logs layout; rows show `CPU · RAM · IP` like containers
+  show their IP.
+- The machine detail status badge and IP must come from the live
+  `machine list` (the wrapper's `machines`), not from `inspect` whose
+  `status` lags and which omits the IP.
+- Do **not** surface the "default" machine flag in the UI — it only
+  matters to the CLI (omitting `-n`); in-app you always pick a machine
+  explicitly, so showing it is misleading.
+- Create form: validate the name client-side (lowercase letters, digits,
+  hyphens; no leading/trailing hyphen) and disable Create with an inline
+  hint, so we don't pull an image and then fail on a bad name.
+- Edit configuration (cpus/memory/home-mount) takes effect only after a
+  restart — say so, confirm the save explicitly, and offer "Restart now"
+  when the machine is running.
+- Don't claim a one-machine-at-a-time limit: multiple machines can run.
+  A start that fails for host-memory reasons should surface the real CLI
+  error, not a fabricated restriction.
+
+## Sidebar sections
+- The Containers / Machines / Images sections are reorderable from the
+  sidebar (header context menu, Move Up / Move Down). Order, expand
+  state, and status filters persist across launches.
+- Creation is unified: the toolbar `+` is a menu (New Container… / New
+  Machine…); don't scatter per-section create buttons.
+
 ## Create Container Form
 - Ports input must clearly distinguish:
   - `Host Port`: port exposed on the Mac/host

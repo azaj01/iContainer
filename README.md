@@ -19,25 +19,18 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 
 ## Features
 
-- **Dashboard** — container/image counts at a glance, quick actions, recent containers.
+- **Dashboard** — container, machine, and image counts at a glance, quick actions (create container/machine, pull image), and a two-column overview of available containers and machines.
 - **Container lifecycle** — create (from an image or a Dockerfile build), start, stop, restart, edit settings (ports, volumes, environment), delete. Editing recreates the container with the new configuration.
-- **Sidebar** — running/stopped sorting, search, and a status filter; live status indicators.
+- **Container machines** — manage the Linux VMs that host containers (WWDC 2026): create, start/stop, edit (CPUs, memory, home mount), delete, with Info / Shell / Logs tabs per machine.
+- **Sidebar** — reorderable Containers / Machines / Images sections (order, expand state, and filters persist), running/stopped sorting, search, and status filters; live status indicators.
 - **Per-container detail tabs** — Info (network, mounts, DNS, env, exposed-port browser links), Stats with charts, persistent Shell session, Logs with follow mode.
 - **Images** — list, pull, inspect, delete; registry login with guided error handling for auth failures.
-- **Apple container service** — start/stop the system service, view its status, version, and live system logs.
-- **Update check** — notifies you when a newer release of the `container` CLI is available on GitHub.
+- **Apple container service** — start/stop the system service, view its status, version, service-wide stats, and live system logs.
+- **Update check** — notifies you when a newer release of the `container` CLI (or of iContainer itself) is available on GitHub.
 - **Notifications** — optional system notifications when a container stops or an action fails.
 - **Settings** — theme, launch at login, auto-start service, quit behavior, polling cadence, confirmation dialogs, default shell, terminal font, custom CLI path, default registry.
-- **Menu bar extra** — control containers and the service without opening the main window.
+- **Menu bar extra** — control containers and machines and the service without opening the main window.
 - **Keyboard shortcuts** — full menu bar command set (⌘N new container, ⇧⌘P pull image, ⌘1–⌘4 detail tabs, and more).
-
-## Roadmap
-
-- 🚧 **Container machines** — support for the new container machines
-  announced at WWDC 2026 is on the way.
-
-(It's a hobby project, so "on the way" runs at hobby-project speed — but
-it's coming. Ideas and PRs welcome.)
 
 ## Requirements
 

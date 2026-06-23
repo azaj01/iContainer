@@ -6,12 +6,15 @@ import SwiftUI
 /// actions through closures. Owned by `ContentView`.
 struct WelcomeDashboardView: View {
     let containers: [Container]
+    let machines: [Machine]
     let imageCount: Int
     let isServiceRunning: Bool
     let onCreateContainer: () -> Void
+    let onCreateMachine: () -> Void
     let onPullImage: () -> Void
     let onShowService: () -> Void
     let onSelectContainer: (Container) -> Void
+    let onSelectMachine: (Machine) -> Void
 
     @EnvironmentObject private var releaseChecker: ContainerReleaseChecker
     @EnvironmentObject private var appReleaseChecker: AppReleaseChecker
@@ -29,6 +32,21 @@ struct WelcomeDashboardView: View {
         (runningContainers + stoppedContainers).prefix(5).map { $0 }
     }
 
+    private var previewMachines: [Machine] {
+        let running = machines.filter { $0.status == .running }
+        let others = machines.filter { $0.status != .running }
+        return (running + others).prefix(5).map { $0 }
+    }
+
+    /// Running / stopped counts span both containers and machines.
+    private var runningCount: Int {
+        runningContainers.count + machines.filter { $0.status == .running }.count
+    }
+
+    private var stoppedCount: Int {
+        stoppedContainers.count + machines.filter { $0.status == .stopped }.count
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -41,9 +59,9 @@ struct WelcomeDashboardView: View {
                 }
                 metrics
                 actions
-                containerPreview
+                availableSection
             }
-            .frame(maxWidth: 760, alignment: .leading)
+            .frame(maxWidth: 880, alignment: .leading)
             .padding(.horizontal, 44)
             .padding(.vertical, 40)
         }
@@ -155,8 +173,9 @@ struct WelcomeDashboardView: View {
     private var metrics: some View {
         HStack(spacing: 12) {
             WelcomeMetricTile(title: "Containers", value: containers.count, systemImage: "shippingbox")
-            WelcomeMetricTile(title: "Running", value: runningContainers.count, systemImage: "play.circle")
-            WelcomeMetricTile(title: "Stopped", value: stoppedContainers.count, systemImage: "stop.circle")
+            WelcomeMetricTile(title: "Machines", value: machines.count, systemImage: "cpu")
+            WelcomeMetricTile(title: "Running", value: runningCount, systemImage: "play.circle")
+            WelcomeMetricTile(title: "Stopped", value: stoppedCount, systemImage: "stop.circle")
             WelcomeMetricTile(title: "Images", value: imageCount, systemImage: "square.stack.3d.up")
         }
     }
@@ -164,9 +183,16 @@ struct WelcomeDashboardView: View {
     private var actions: some View {
         HStack(spacing: 10) {
             Button(action: onCreateContainer) {
-                Label("Create Container", systemImage: "plus")
+                Label("Create Container", systemImage: "shippingbox")
             }
             .actionButtonStyle(prominent: true)
+            .controlSize(.large)
+            .disabled(!isServiceRunning)
+
+            Button(action: onCreateMachine) {
+                Label("Create Machine", systemImage: "cpu")
+            }
+            .actionButtonStyle()
             .controlSize(.large)
             .disabled(!isServiceRunning)
 
@@ -179,7 +205,7 @@ struct WelcomeDashboardView: View {
 
             if isServiceRunning {
                 Button(action: onShowService) {
-                    Label("Apple container service details", systemImage: "server.rack")
+                    Label("Service", systemImage: "server.rack")
                 }
                 .actionButtonStyle()
                 .controlSize(.large)
@@ -187,42 +213,69 @@ struct WelcomeDashboardView: View {
         }
     }
 
-    @ViewBuilder
-    private var containerPreview: some View {
-        if previewContainers.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("No containers yet", systemImage: "shippingbox")
-                    .font(.headline)
-                Text(isServiceRunning ? "Create a container or pull an image to start." : "Start the container service to create and manage containers.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppRadius.small))
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Available Containers")
-                    .font(.headline)
-
-                VStack(spacing: 0) {
-                    ForEach(previewContainers) { container in
-                        Button {
-                            onSelectContainer(container)
-                        } label: {
-                            WelcomeContainerRow(container: container)
-                        }
-                        .buttonStyle(.plain)
-
-                        if container.id != previewContainers.last?.id {
-                            Divider()
-                                .padding(.leading, 28)
-                        }
+    /// Two columns: containers on the left, machines on the right.
+    private var availableSection: some View {
+        HStack(alignment: .top, spacing: 16) {
+            availableColumn(
+                title: "Available Containers",
+                isEmpty: previewContainers.isEmpty,
+                emptyText: isServiceRunning
+                    ? "Create a container or pull an image to start."
+                    : "Start the container service to manage containers."
+            ) {
+                ForEach(previewContainers) { container in
+                    Button { onSelectContainer(container) } label: {
+                        WelcomeContainerRow(container: container)
+                    }
+                    .buttonStyle(.plain)
+                    if container.id != previewContainers.last?.id {
+                        Divider().padding(.leading, 28)
                     }
                 }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppRadius.small))
+            }
+
+            availableColumn(
+                title: "Available Machines",
+                isEmpty: previewMachines.isEmpty,
+                emptyText: isServiceRunning
+                    ? "Create a machine to get started."
+                    : "Start the container service to manage machines."
+            ) {
+                ForEach(previewMachines) { machine in
+                    Button { onSelectMachine(machine) } label: {
+                        WelcomeMachineRow(machine: machine)
+                    }
+                    .buttonStyle(.plain)
+                    if machine.id != previewMachines.last?.id {
+                        Divider().padding(.leading, 28)
+                    }
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func availableColumn<Content: View>(
+        title: String,
+        isEmpty: Bool,
+        emptyText: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.headline)
+            if isEmpty {
+                Text(emptyText)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppRadius.small))
+            } else {
+                VStack(spacing: 0) { content() }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppRadius.small))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -246,6 +299,40 @@ private struct WelcomeMetricTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: AppRadius.small))
+    }
+}
+
+private struct WelcomeMachineRow: View {
+    let machine: Machine
+
+    private var subtitle: String {
+        var parts: [String] = []
+        if let cpus = machine.cpus { parts.append("\(cpus) CPU") }
+        let mem = MachineDetailView.formatBytes(machine.memoryBytes)
+        if mem != "-" { parts.append(mem) }
+        return parts.isEmpty ? "machine" : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            StatusDot(isRunning: machine.status == .running)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(machine.name)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+        }
+        .contentShape(Rectangle())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 

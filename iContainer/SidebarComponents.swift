@@ -78,10 +78,12 @@ struct ContainerRowView: View {
                     Text(container.name)
                         .font(.headline)
                 }
-                // One compact subtitle: the IP address when the container
-                // has one (i.e. it is running), otherwise the image reference.
+                // One compact subtitle: the IP address when the container has
+                // one (i.e. it is running), otherwise the image reference. The
+                // box icon stays in both cases — it reads as "container" at a
+                // glance, more than a network glyph would.
                 if let ip = container.ipAddress {
-                    Label(ip, systemImage: "network")
+                    Label(ip, systemImage: "shippingbox")
                         .font(.caption)
                 } else if let image = container.image {
                     Label(image, systemImage: "shippingbox")
@@ -213,11 +215,6 @@ struct MachineRowView: View {
                     StatusDot(isRunning: machine.status == .running)
                     Text(machine.name)
                         .font(.headline)
-                    if machine.isDefault {
-                        Image(systemName: "star.fill")
-                            .font(.caption2)
-                            .foregroundColor(.accentColor)
-                    }
                 }
                 Label(machineSubtitle, systemImage: "cpu")
                     .font(.caption)
@@ -303,6 +300,7 @@ struct MachineRowView: View {
         if let cpus = machine.cpus { parts.append("\(cpus) CPU") }
         let mem = MachineDetailView.formatBytes(machine.memoryBytes)
         if mem != "-" { parts.append(mem) }
+        if let ip = machine.ipAddress { parts.append(ip) }
         return parts.isEmpty ? "machine" : parts.joined(separator: " · ")
     }
 }

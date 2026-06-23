@@ -117,6 +117,29 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   The Logs tab can hide repetitive XPC `Connection invalid` noise when
   `SettingsManager.hideXPCNoiseInLogs` is on (display-only filter).
 
+### Container machines
+- `iContainer/Machine.swift`: `Machine` (sidebar list row),
+  `MachineDetails` (inspect), and `MachineStatus`.
+- `iContainer/MachineDetailView.swift`: the machine detail tab host
+  (Info / Shell / Logs) plus `MachineLogsView` and `MachineHeaderView`.
+  Info shows config, network (IP + copy button, when running), image,
+  and user; the status badge reads the live state from the list, not
+  `inspect` (whose `status` lags).
+- `iContainer/MachineShellView.swift`: `MachineShellView` /
+  `MachineShellSession`, a persistent `container machine run -n <id> -i`
+  session mirroring `ContainerShellSession`.
+- `iContainer/MachineSheets.swift`: `CreateMachineSheet` (with live name
+  validation) and `EditMachineConfigSheet` (cpus/memory/home-mount, with
+  a restart-to-apply prompt).
+- `iContainer/MachineActionsMenuItems.swift`: shared action menu (twin
+  of `ContainerActionsMenuItems`) used by the sidebar context menu and
+  the menu bar extra.
+- Machine state and actions live in `ContainerizationWrapper`
+  (`machines`, `updatingMachineIDs`, `refreshMachines`, `startMachine`,
+  `stopMachine`, `deleteMachine`, `createMachine`, `setMachineConfig`,
+  `inspectMachine`, `machineLogs`); parsing is in `CLIParsers`
+  (`parseMachineList` / `parseMachineDetails`).
+
 ### Settings and notifications
 - `iContainer/Settings.swift`: `SettingsManager` (`ObservableObject`
   singleton backed by `UserDefaults`), plus the `ThemePreference`,
@@ -203,6 +226,11 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   - **Behavior**: refresh interval seconds (5; allowed values are
     Manual / 2 / 5 / 10), confirm Stop (on), confirm Delete (on),
     confirm Prune (on).
+  - **Sidebar view state** (not shown in Settings; set from the sidebar
+    and persisted via `@AppStorage`): section order
+    (`sidebarSectionOrder`), per-section expand
+    (`containersExpanded`/`machinesExpanded`/`imagesExpanded`), and the
+    `containerStatusFilter` / `machineStatusFilter`.
   - **Terminal**: default in-container shell (`sh`), font name (Menlo),
     font size (12), force-black terminal (off), hide noisy XPC
     connection errors in logs (on; display-only filter).
@@ -254,11 +282,21 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   in a separate `systemContainers` list and surfaced only in the
   Service detail "Build Infrastructure" section — same convention as
   Docker Desktop / OrbStack.
+- `Machines` section: between Containers and Images; rows show
+  `CPU · RAM · IP` (IP when running), inline start/stop, status filter
+  (All/Running/Stopped), and the homogeneous `MachineActionsMenuItems`
+  context menu. The "default" machine flag is intentionally not surfaced
+  in the app (only relevant to the CLI's `-n`-less commands).
+- The three content sections (Containers / Machines / Images) are
+  reorderable via the header context menu (Move Up / Move Down); order,
+  per-section expand/collapse, and status filters are persisted.
 - `Images` section behavior:
   - section is always visible
   - image rows are shown only when service is running
   - pull-image icon is hidden when service is stopped
-- add-container (`+`) toolbar icon is hidden when service is stopped
+- Creation is unified under the toolbar `+` menu (New Container… / New
+  Machine…), hidden when the service is stopped; the dashboard exposes
+  both Create Container and Create Machine.
 - Sidebar search field:
   - case-insensitive filter on container name + image reference and on
     image reference
@@ -298,6 +336,26 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - Container shell is persistent per container (session cache by `containerId`).
 - Shell starts automatically when opening the Shell tab.
 - Commands are sent through a long-lived `container exec ... /bin/sh` process.
+
+## Container Machines (CLI behavior learnings)
+- There is no `container machine start`; a stopped machine is booted with
+  `container machine run -n <id> -d /bin/true` (run boots it if stopped,
+  `-d` detaches and leaves it running). The Shell tab uses the same `run`
+  to boot-and-attach.
+- **Multiple machines CAN run at once** — there is no one-at-a-time
+  limit. Booting a second machine can still fail with "Operation not
+  supported by device" when the **host is low on free RAM**: the
+  Virtualization framework can't wire the VM's memory. This is host
+  memory pressure, not an app or CLI restriction — `sudo purge` /
+  closing apps frees enough.
+- Only some images boot as a machine. `alpine` boots; `ubuntu:latest`,
+  `debian:latest`, `fedora:latest`, `archlinux:latest` do **not**
+  ("Operation not supported by device" even alone) — they create fine
+  but can't boot. Keep this in mind for any default-image logic.
+- `container machine inspect` does **not** include the IP or a reliable
+  running `status`; the IP and live status come from
+  `container machine list`. `machine set` changes apply only after a
+  stop+start.
 
 ## Service Detail Naming
 - Service detail header title is:

@@ -28,6 +28,7 @@ nonisolated struct Machine: Identifiable, Equatable {
     let diskBytes: Int64?
     let isDefault: Bool
     let createdDate: String?
+    let ipAddress: String?
 
     var name: String { id }
 }
@@ -45,6 +46,8 @@ nonisolated struct MachineDetails: Equatable {
     let architecture: String?
     let createdDate: String?
     let username: String?
+    let uid: Int?
+    let gid: Int?
     let isDefault: Bool
 
     var name: String { id }

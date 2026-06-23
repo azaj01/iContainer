@@ -35,12 +35,13 @@ final class CLIParsersMachineTests: XCTestCase {
 
     func testParseMachineListRunningAndNonDefault() {
         let json = """
-        [{"id":"build","status":"running","cpus":2,"memory":2147483648,"diskSize":1024,"default":false}]
+        [{"id":"build","status":"running","cpus":2,"memory":2147483648,"diskSize":1024,"default":false,"ipAddress":"192.168.64.9"}]
         """
         let machines = CLIParsers.parseMachineList(json)
         XCTAssertEqual(machines.count, 1)
         XCTAssertEqual(machines[0].status, .running)
         XCTAssertFalse(machines[0].isDefault)
+        XCTAssertEqual(machines[0].ipAddress, "192.168.64.9")
     }
 
     func testParseMachineListSkipsItemsWithoutId() {
@@ -94,6 +95,8 @@ final class CLIParsersMachineTests: XCTestCase {
         XCTAssertEqual(d?.os, "linux")
         XCTAssertEqual(d?.architecture, "arm64")
         XCTAssertEqual(d?.username, "nico")
+        XCTAssertEqual(d?.uid, 501)
+        XCTAssertEqual(d?.gid, 20)
         XCTAssertTrue(d?.isDefault ?? false)
     }
 

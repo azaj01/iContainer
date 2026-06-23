@@ -334,7 +334,8 @@ nonisolated enum CLIParsers {
             memoryBytes: intValue(dict, keys: ["memory", "memoryInBytes"]),
             diskBytes: intValue(dict, keys: ["diskSize", "disk"]),
             isDefault: boolValue(dict, keys: ["default", "isDefault"]) ?? false,
-            createdDate: stringValue(dict, keys: ["createdDate", "creationDate", "created"])
+            createdDate: stringValue(dict, keys: ["createdDate", "creationDate", "created"]),
+            ipAddress: stringValue(dict, keys: ["ipAddress", "ipv4Address", "address"])
         )
     }
 
@@ -369,6 +370,8 @@ nonisolated enum CLIParsers {
             architecture: stringValue(platform ?? [:], keys: ["architecture"]),
             createdDate: stringValue(dict, keys: ["createdDate", "creationDate", "created"]),
             username: stringValue(userSetup ?? [:], keys: ["username"]),
+            uid: intValueInt(userSetup ?? [:], keys: ["uid"]),
+            gid: intValueInt(userSetup ?? [:], keys: ["gid"]),
             isDefault: boolValue(dict, keys: ["default", "isDefault"]) ?? false
         )
     }

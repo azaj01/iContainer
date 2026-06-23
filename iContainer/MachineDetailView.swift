@@ -62,30 +62,28 @@ struct MachineDetailView: View {
             ?? details?.status ?? .unknown
     }
 
+    /// The IP is only reported by `machine list` (not `inspect`), and only
+    /// while the machine is running.
+    private var liveIPAddress: String? {
+        containerManager.machines.first(where: { $0.id == machineId })?.ipAddress
+    }
+
     private var isBusy: Bool {
         containerManager.updatingMachineIDs.contains(machineId)
+    }
+
+    private func userText(_ d: MachineDetails) -> String {
+        let name = d.username ?? "-"
+        if let uid = d.uid, let gid = d.gid {
+            return "\(name) (uid \(uid), gid \(gid))"
+        }
+        return name
     }
 
     private var infoTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(machineId)
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        if details?.isDefault ?? false {
-                            Text("DEFAULT")
-                                .font(.caption2).fontWeight(.bold)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color.accentColor.opacity(0.2))
-                                .foregroundColor(.accentColor)
-                                .cornerRadius(AppRadius.small)
-                        }
-                        Spacer()
-                        StatusBadge(status: liveStatus.isRunning ? "Running" : "Stopped")
-                    }
-                }
+                MachineHeaderView(machineId: machineId)
 
                 actionsRow
 
@@ -96,13 +94,38 @@ struct MachineDetailView: View {
                         DetailRow(label: "Disk", value: Self.formatBytes(details.diskBytes))
                         DetailRow(label: "Home mount", value: details.homeMount ?? "-")
                     }
+                    if let ip = liveIPAddress {
+                        DetailSection(title: "Network", icon: "network") {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("IP Address")
+                                    .font(InfoTextStyle.labelFont)
+                                    .foregroundColor(.secondary)
+                                    .fontWeight(.medium)
+                                HStack(spacing: 6) {
+                                    Text(ip)
+                                        .font(InfoTextStyle.monospacedValueFont)
+                                        .textSelection(.enabled)
+                                    Button {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(ip, forType: .string)
+                                    } label: {
+                                        Image(systemName: "doc.on.doc")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Copy IP address")
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 2)
+                        }
+                    }
                     DetailSection(title: "Image", icon: "shippingbox") {
                         DetailRow(label: "Reference", value: details.imageReference ?? "-", isMonospaced: true)
                         DetailRow(label: "Platform", value: platformText(details))
                     }
                     DetailSection(title: "Details", icon: "info.circle") {
                         DetailRow(label: "Created", value: details.createdDate ?? "-")
-                        DetailRow(label: "User", value: details.username ?? "-")
+                        DetailRow(label: "User", value: userText(details))
                     }
                 } else if isLoading {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 20)
@@ -183,8 +206,9 @@ struct MachineLogsView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let logAreaHeight = max(240, proxy.size.height - 120)
+            let logAreaHeight = max(240, proxy.size.height - 220)
             VStack(alignment: .leading, spacing: 16) {
+                MachineHeaderView(machineId: machineId)
                 DetailSection(title: "Logs", icon: "doc.plaintext") {
                     VStack(spacing: 12) {
                         HStack(spacing: 12) {
@@ -270,5 +294,30 @@ struct MachineLogsView: View {
         } else {
             logsText = "No logs available."
         }
+    }
+}
+
+/// Shared name + status header for the machine detail tabs, matching
+/// `ContainerHeaderView`. Reads live state from the wrapper so the status
+/// badge stays current.
+struct MachineHeaderView: View {
+    let machineId: String
+    @EnvironmentObject var containerManager: ContainerizationWrapper
+
+    private var machine: Machine? {
+        containerManager.machines.first(where: { $0.id == machineId })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(machineId)
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Spacer()
+                StatusBadge(status: (machine?.status.isRunning ?? false) ? "Running" : "Stopped")
+            }
+        }
+        .padding(.bottom, 8)
     }
 }
