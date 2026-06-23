@@ -21,6 +21,7 @@ struct MenuBarContainersView: View {
 
             Divider()
 
+            Section("Containers") {
             if containerManager.containers.isEmpty {
                 Text("No containers")
             } else {
@@ -56,9 +57,9 @@ struct MenuBarContainersView: View {
                     }
                 }
             }
+            }
 
-            Divider()
-
+            Section("Machines") {
             if containerManager.machines.isEmpty {
                 Text("No machines")
             } else {
@@ -93,6 +94,7 @@ struct MenuBarContainersView: View {
                         }
                     }
                 }
+            }
             }
 
             Divider()

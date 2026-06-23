@@ -33,6 +33,16 @@ private enum ContainerStatusFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// The reorderable sidebar sections (the "Container service" entry is fixed
+/// at the top and not part of this set).
+private enum SidebarManagedSection: String, CaseIterable, Identifiable {
+    case containers
+    case machines
+    case images
+
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @EnvironmentObject var serviceManager: ServiceManager
@@ -93,10 +103,13 @@ struct ContentView: View {
     @State private var isSavingContainerEdit = false
     @State private var selection: SidebarSelection?
     @State private var sidebarSearchQuery: String = ""
-    @State private var containerStatusFilter: ContainerStatusFilter = .all
+    @AppStorage(SettingsManager.Keys.containerStatusFilter) private var containerStatusFilter: ContainerStatusFilter = .all
     @State private var showingContainerFilterPopover = false
-    @State private var machineStatusFilter: ContainerStatusFilter = .all
+    @AppStorage(SettingsManager.Keys.machineStatusFilter) private var machineStatusFilter: ContainerStatusFilter = .all
     @State private var showingMachineFilterPopover = false
+    /// Persisted order of the reorderable sidebar sections (comma-separated
+    /// raw values of `SidebarManagedSection`).
+    @AppStorage(SettingsManager.Keys.sidebarSectionOrder) private var sidebarSectionOrderRaw = "containers,machines,images"
     // Mirrors `SettingsManager.sidebarTinted` via its UserDefaults key, so
     // toggling the preference live-updates the sidebar wash in both windows.
     @AppStorage(SettingsManager.Keys.sidebarTinted) private var sidebarTinted = SettingsManager.Defaults.sidebarTinted
@@ -452,62 +465,147 @@ struct ContentView: View {
         }
     }
 
-    private var sidebar: some View {
-        List(selection: $selection) {
-            Section(header: Text("Container service")) {
-                NavigationLink(value: SidebarSelection.service) {
-                    ServiceStatusView()
+    // MARK: - Reorderable sidebar sections
+
+    /// Section order from the persisted preference, with any missing cases
+    /// appended (robust against added/removed sections).
+    private var orderedSections: [SidebarManagedSection] {
+        let parsed = sidebarSectionOrderRaw
+            .split(separator: ",")
+            .compactMap { SidebarManagedSection(rawValue: String($0)) }
+        let missing = SidebarManagedSection.allCases.filter { !parsed.contains($0) }
+        return parsed + missing
+    }
+
+    private func moveSection(_ section: SidebarManagedSection, by offset: Int) {
+        var order = orderedSections
+        guard let index = order.firstIndex(of: section) else { return }
+        let target = index + offset
+        guard target >= 0, target < order.count else { return }
+        order.swapAt(index, target)
+        sidebarSectionOrderRaw = order.map(\.rawValue).joined(separator: ",")
+    }
+
+    @ViewBuilder
+    private func sectionReorderMenu(_ section: SidebarManagedSection) -> some View {
+        Button("Move Up") { moveSection(section, by: -1) }
+            .disabled(orderedSections.first == section)
+        Button("Move Down") { moveSection(section, by: 1) }
+            .disabled(orderedSections.last == section)
+    }
+
+    private var containersSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isContainersExpanded) {
+                ForEach(filteredContainers) { container in
+                    NavigationLink(value: SidebarSelection.container(ContainerNavigationTarget(id: container.id, tab: 0))) {
+                        ContainerRowView(
+                            container: container,
+                            onNavigateToTab: { tab in
+                                selection = .container(ContainerNavigationTarget(id: container.id, tab: tab))
+                            },
+                            onEditSettings: {
+                                openEditContainerSheet(containerId: container.id)
+                            }
+                        )
+                    }
                 }
-                .contextMenu {
-                    Button("Registry Login") {
-                        showingRegistryLoginSheet = true
+                if filteredContainers.isEmpty && (!sidebarSearchQuery.isEmpty || containerStatusFilter != .all) {
+                    Text("No matching containers")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } label: {
+                HStack {
+                    Text("Containers")
+                    Spacer()
+                    Button {
+                        showingContainerFilterPopover = true
+                    } label: {
+                        Image(systemName: containerStatusFilter == .all
+                              ? "line.3.horizontal.decrease.circle"
+                              : "line.3.horizontal.decrease.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Filter containers by status")
+                    .popover(isPresented: $showingContainerFilterPopover, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(ContainerStatusFilter.allCases) { filter in
+                                Button {
+                                    containerStatusFilter = filter
+                                    showingContainerFilterPopover = false
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "checkmark")
+                                            .frame(width: 12)
+                                            .opacity(filter == containerStatusFilter ? 1 : 0)
+                                        Text(filter.rawValue)
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(8)
+                        .frame(minWidth: 140)
                     }
                 }
             }
-            Section {
-                DisclosureGroup(isExpanded: $isContainersExpanded) {
-                    ForEach(filteredContainers) { container in
-                        NavigationLink(value: SidebarSelection.container(ContainerNavigationTarget(id: container.id, tab: 0))) {
-                            ContainerRowView(
-                                container: container,
+            .contextMenu { sectionReorderMenu(.containers) }
+        }
+    }
+
+    private var machinesSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isMachinesExpanded) {
+                if serviceManager.isServiceRunning {
+                    ForEach(filteredMachines) { machine in
+                        NavigationLink(value: SidebarSelection.machine(MachineNavigationTarget(id: machine.id, tab: 0))) {
+                            MachineRowView(
+                                machine: machine,
                                 onNavigateToTab: { tab in
-                                    selection = .container(ContainerNavigationTarget(id: container.id, tab: tab))
+                                    selection = .machine(MachineNavigationTarget(id: machine.id, tab: tab))
                                 },
-                                onEditSettings: {
-                                    openEditContainerSheet(containerId: container.id)
+                                onEditConfig: {
+                                    openEditMachineSheet(machineId: machine.id)
                                 }
                             )
                         }
                     }
-                    if filteredContainers.isEmpty && (!sidebarSearchQuery.isEmpty || containerStatusFilter != .all) {
-                        Text("No matching containers")
+                    if filteredMachines.isEmpty && (!sidebarSearchQuery.isEmpty || machineStatusFilter != .all) {
+                        Text("No matching machines")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                } label: {
-                    HStack {
-                        Text("Containers")
-                        Spacer()
+                } else {
+                    EmptyView()
+                }
+            } label: {
+                HStack {
+                    Text("Machines")
+                    Spacer()
+                    if serviceManager.isServiceRunning {
                         Button {
-                            showingContainerFilterPopover = true
+                            showingMachineFilterPopover = true
                         } label: {
-                            Image(systemName: containerStatusFilter == .all
+                            Image(systemName: machineStatusFilter == .all
                                   ? "line.3.horizontal.decrease.circle"
                                   : "line.3.horizontal.decrease.circle.fill")
                         }
                         .buttonStyle(.borderless)
-                        .help("Filter containers by status")
-                        .popover(isPresented: $showingContainerFilterPopover, arrowEdge: .bottom) {
+                        .help("Filter machines by status")
+                        .popover(isPresented: $showingMachineFilterPopover, arrowEdge: .bottom) {
                             VStack(alignment: .leading, spacing: 2) {
                                 ForEach(ContainerStatusFilter.allCases) { filter in
                                     Button {
-                                        containerStatusFilter = filter
-                                        showingContainerFilterPopover = false
+                                        machineStatusFilter = filter
+                                        showingMachineFilterPopover = false
                                     } label: {
                                         HStack(spacing: 6) {
                                             Image(systemName: "checkmark")
                                                 .frame(width: 12)
-                                                .opacity(filter == containerStatusFilter ? 1 : 0)
+                                                .opacity(filter == machineStatusFilter ? 1 : 0)
                                             Text(filter.rawValue)
                                             Spacer()
                                         }
@@ -522,103 +620,66 @@ struct ContentView: View {
                     }
                 }
             }
-            Section {
-                DisclosureGroup(isExpanded: $isMachinesExpanded) {
-                    if serviceManager.isServiceRunning {
-                        ForEach(filteredMachines) { machine in
-                            NavigationLink(value: SidebarSelection.machine(MachineNavigationTarget(id: machine.id, tab: 0))) {
-                                MachineRowView(
-                                    machine: machine,
-                                    onNavigateToTab: { tab in
-                                        selection = .machine(MachineNavigationTarget(id: machine.id, tab: tab))
-                                    },
-                                    onEditConfig: {
-                                        openEditMachineSheet(machineId: machine.id)
-                                    }
-                                )
-                            }
-                        }
-                        if filteredMachines.isEmpty && (!sidebarSearchQuery.isEmpty || machineStatusFilter != .all) {
-                            Text("No matching machines")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        EmptyView()
+            .contextMenu { sectionReorderMenu(.machines) }
+        }
+    }
+
+    private var imagesSection: some View {
+        Section {
+            DisclosureGroup(isExpanded: $isImagesExpanded) {
+                if serviceManager.isServiceRunning {
+                    ForEach(filteredImages) { image in
+                        ImageRowView(image: image)
                     }
-                } label: {
-                    HStack {
-                        Text("Machines")
-                        Spacer()
-                        if serviceManager.isServiceRunning {
-                            Button {
-                                showingMachineFilterPopover = true
-                            } label: {
-                                Image(systemName: machineStatusFilter == .all
-                                      ? "line.3.horizontal.decrease.circle"
-                                      : "line.3.horizontal.decrease.circle.fill")
-                            }
-                            .buttonStyle(.borderless)
-                            .help("Filter machines by status")
-                            .popover(isPresented: $showingMachineFilterPopover, arrowEdge: .bottom) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    ForEach(ContainerStatusFilter.allCases) { filter in
-                                        Button {
-                                            machineStatusFilter = filter
-                                            showingMachineFilterPopover = false
-                                        } label: {
-                                            HStack(spacing: 6) {
-                                                Image(systemName: "checkmark")
-                                                    .frame(width: 12)
-                                                    .opacity(filter == machineStatusFilter ? 1 : 0)
-                                                Text(filter.rawValue)
-                                                Spacer()
-                                            }
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(8)
-                                .frame(minWidth: 140)
+                    if filteredImages.isEmpty && !sidebarSearchQuery.isEmpty {
+                        Text("No matching images")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    EmptyView()
+                }
+            } label: {
+                HStack {
+                    Text("Images")
+                    Spacer()
+                    if serviceManager.isServiceRunning {
+                        Button {
+                            showingPullImageAlert = true
+                        } label: {
+                            if isPullingImage {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
                             }
                         }
+                        .buttonStyle(.borderless)
+                        .disabled(isPullingImage)
                     }
                 }
             }
-            Section {
-                DisclosureGroup(isExpanded: $isImagesExpanded) {
-                    if serviceManager.isServiceRunning {
-                        ForEach(filteredImages) { image in
-                            ImageRowView(image: image)
-                        }
-                        if filteredImages.isEmpty && !sidebarSearchQuery.isEmpty {
-                            Text("No matching images")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        EmptyView()
+            .contextMenu { sectionReorderMenu(.images) }
+        }
+    }
+
+    private var sidebar: some View {
+        List(selection: $selection) {
+            Section(header: Text("Container service")) {
+                NavigationLink(value: SidebarSelection.service) {
+                    ServiceStatusView()
+                }
+                .contextMenu {
+                    Button("Registry Login") {
+                        showingRegistryLoginSheet = true
                     }
-                } label: {
-                    HStack {
-                        Text("Images")
-                        Spacer()
-                        if serviceManager.isServiceRunning {
-                            Button {
-                                showingPullImageAlert = true
-                            } label: {
-                                if isPullingImage {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "square.and.arrow.down")
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(isPullingImage)
-                        }
-                    }
+                }
+            }
+            ForEach(orderedSections) { section in
+                switch section {
+                case .containers: containersSection
+                case .machines: machinesSection
+                case .images: imagesSection
                 }
             }
         }

@@ -190,9 +190,10 @@ struct MachineLogsView: View {
                         HStack(spacing: 12) {
                             TextField("Filter", text: $filterText)
                                 .textFieldStyle(.roundedBorder)
-                            if isLoadingLogs {
-                                ProgressView().scaleEffect(0.7)
-                            }
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 16, height: 16)
+                                .opacity(isLoadingLogs ? 1 : 0)
                             Toggle("Follow", isOn: $isFollowing)
                                 .toggleStyle(.switch)
                             Button("Refresh") {
