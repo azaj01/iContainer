@@ -1,6 +1,6 @@
 cask "icontainer" do
-  version "2.0.0"
-  sha256 "c3b175097fb976c569fcc5801db2e080dbcc576f822deac91c7333285493c4a1"
+  version "2.0.1"
+  sha256 "7d29570e6b7403810ec0a448e87f7e580dd4b1c3b2edcf75fa65b290f59ddbf9"
 
   url "https://github.com/nico81/iContainer/releases/download/v#{version}/iContainer-v#{version}.zip"
   name "iContainer"
