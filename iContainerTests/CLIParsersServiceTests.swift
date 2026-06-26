@@ -86,6 +86,22 @@ final class CLIParsersServiceTests: XCTestCase {
         ])
     }
 
+    func testParseCLIVersionComponents() {
+        XCTAssertEqual(
+            SettingsManager.parseCLIVersionComponents("container CLI version 1.0.0 (build: release, commit: ee848e3)"),
+            [1, 0, 0]
+        )
+        XCTAssertEqual(SettingsManager.parseCLIVersionComponents("v0.4.1"), [0, 4, 1])
+        XCTAssertNil(SettingsManager.parseCLIVersionComponents("no version here"))
+    }
+
+    func testVersionComparisonPicksHigherAndHandlesUnequalLengths() {
+        XCTAssertTrue(SettingsManager.versionIsLower([0, 4, 1], than: [1, 0, 0]))
+        XCTAssertFalse(SettingsManager.versionIsLower([1, 0, 0], than: [0, 9, 9]))
+        XCTAssertFalse(SettingsManager.versionIsLower([1, 0], than: [1, 0, 0])) // equal
+        XCTAssertTrue(SettingsManager.versionIsLower([], than: [1]))            // missing → 0
+    }
+
     // MARK: - limitedLogOutput
 
     func testLimitedLogOutputShortPasses() {

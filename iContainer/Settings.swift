@@ -364,11 +364,11 @@ extension SettingsManager {
         return FileManager.default.isExecutableFile(atPath: trimmed) ? trimmed : nil
     }
 
-    /// Candidate `container` CLI locations in the order iContainer should try
-    /// them. Homebrew on Apple Silicon installs into `/opt/homebrew`, while
-    /// older Intel/Rosetta installs often leave a stale binary in
-    /// `/usr/local/bin`. Prefer the Apple Silicon Homebrew path before the
-    /// legacy path so a leftover 0.x CLI does not mask a current 1.x install.
+    /// Known `container` CLI locations to look in. Apple's official `.pkg`
+    /// installs to `/usr/local`; a Homebrew install lands in `/opt/homebrew`
+    /// on Apple Silicon. The order here is only the discovery list (and the
+    /// tiebreak when versions are equal) — `resolvedContainerCLIPath` picks
+    /// the winner by version, not by position. Deduplicated.
     nonisolated static func containerCLIPathCandidates(pathEnvironment: String? = ProcessInfo.processInfo.environment["PATH"]) -> [String] {
         var candidates: [String] = [
             "/opt/homebrew/bin/container",
@@ -386,16 +386,73 @@ extension SettingsManager {
     }
 
     /// Resolved `container` CLI path shared by every process-spawning code
-    /// path. A valid Settings override still wins; otherwise candidates are
-    /// tried in `containerCLIPathCandidates` order.
+    /// path. A valid Settings override always wins. Otherwise, among the
+    /// installed candidates, the one reporting the highest `container
+    /// --version` is chosen — so a stale binary in one location can't shadow
+    /// a newer install in another, in either direction. Ties keep the earlier
+    /// candidate. Existence is checked live (no caching) so installing or
+    /// removing the CLI is picked up without a restart; the `--version`
+    /// probe only runs when more than one candidate is actually present.
     nonisolated static func resolvedContainerCLIPath() -> String? {
         if let custom = storedCustomCLIPath() {
             return custom
         }
-        for path in containerCLIPathCandidates() where FileManager.default.isExecutableFile(atPath: path) {
-            return path
+        let installed = containerCLIPathCandidates().filter {
+            FileManager.default.isExecutableFile(atPath: $0)
         }
-        return nil
+        guard installed.count > 1 else { return installed.first }
+
+        var best = installed[0]
+        var bestVersion = cliVersionComponents(at: best)
+        for path in installed.dropFirst() {
+            let version = cliVersionComponents(at: path)
+            if versionIsLower(bestVersion, than: version) {
+                best = path
+                bestVersion = version
+            }
+        }
+        return best
+    }
+
+    /// Runs `<path> --version` and returns the first dotted version found as
+    /// numeric components (empty on failure).
+    nonisolated private static func cliVersionComponents(at path: String) -> [Int] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["--version"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return parseCLIVersionComponents(output) ?? []
+    }
+
+    /// Extracts the first dotted version (e.g. "1.0.0" → [1, 0, 0]) from CLI
+    /// `--version` output. Pure and unit-tested.
+    nonisolated static func parseCLIVersionComponents(_ output: String) -> [Int]? {
+        guard let range = output.range(of: #"\d+(\.\d+)+"#, options: .regularExpression) else {
+            return nil
+        }
+        return output[range].split(separator: ".").compactMap { Int($0) }
+    }
+
+    /// Lexicographic numeric comparison of version components, treating
+    /// missing trailing components as 0 (so [1,0] == [1,0,0]).
+    nonisolated static func versionIsLower(_ lhs: [Int], than rhs: [Int]) -> Bool {
+        let count = Swift.max(lhs.count, rhs.count)
+        for index in 0..<count {
+            let l = index < lhs.count ? lhs[index] : 0
+            let r = index < rhs.count ? rhs[index] : 0
+            if l != r { return l < r }
+        }
+        return false
     }
 
     /// In-container shell path to try first when starting an exec session.

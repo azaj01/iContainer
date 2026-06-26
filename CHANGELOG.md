@@ -7,12 +7,20 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
-## [2.0.1] - 2026-06-26
-
 ### Fixed
 - Settings window no longer blanks out when changing the app theme from
   inside Settings; the custom Settings window now stays on the system
   appearance while the main app window still follows the selected theme.
+  Thanks to [@it4nodummies](https://github.com/it4nodummies) (#2).
+- The `container` CLI path is now resolved from a single shared helper
+  (replacing four duplicated copies) and chosen by **version** across the
+  known install locations, so a stale binary in one path can't shadow a
+  newer install in another (in either direction). A custom path in
+  Settings still wins. Thanks to [@it4nodummies](https://github.com/it4nodummies) (#3).
+
+## [2.0.1] - 2026-06-26
+
+### Fixed
 - Container Logs now show the initial log snapshot immediately and always
   clear the loading spinner after refresh, instead of treating the first
   response only as a hidden delta baseline. The snapshot/delta logic now
