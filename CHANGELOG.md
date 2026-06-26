@@ -7,10 +7,14 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-06-26
+
 ### Fixed
 - Container Logs now show the initial log snapshot immediately and always
   clear the loading spinner after refresh, instead of treating the first
-  response only as a hidden delta baseline.
+  response only as a hidden delta baseline. The snapshot/delta logic now
+  lives in a pure, unit-tested `ContainerLogAccumulator`.
+  Thanks to [@it4nodummies](https://github.com/it4nodummies) (#1).
 
 ## [2.0.0] - 2026-06-23
 
