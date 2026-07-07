@@ -115,6 +115,20 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
 - `iContainer/DetailRowComponents.swift`: `DetailSection`, `DetailRow`,
   `StatusBadge`, `InfoTextStyle`. Shared chrome across the four tabs.
 
+### AI log analysis (on-device)
+- `iContainer/LogExplainer.swift`: `@MainActor ObservableObject` that runs
+  Apple's Foundation Models (`SystemLanguageModel` / `LanguageModelSession`,
+  macOS 26+) **entirely on-device** — log text never leaves the machine.
+  Streams a Markdown diagnostic (`streamResponse`) into `@Published
+  explanation`. `readiness` maps `SystemLanguageModel.availability` to a
+  user-facing reason when Apple Intelligence is off / ineligible / the model
+  isn't ready. `buildPrompt` sends only a relevance-filtered slice (recent
+  tail + salient error/warning lines) capped at ~4k chars to fit the small
+  context window, flagging omitted stretches.
+- `iContainer/LogExplanationSheet.swift`: the sheet UI hosting the streamed
+  report; presented from the Logs tab of both `ContainerLogsView` and
+  `MachineDetailView` via an **Explain** action.
+
 ### System service detail
 - `iContainer/ServiceDetailView.swift`: system service detail page with
   Info, Stats, and Logs tabs. The Info tab includes a "Build

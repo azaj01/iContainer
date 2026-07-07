@@ -19,6 +19,7 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 
 ## Features
 
+- **AI log analysis, on-device** 🧠 — one **Explain** click on any container's or machine's Logs tab turns raw output into a concise diagnostic: a health summary, the errors/warnings it found (quoted), the likely cause, and concrete next steps — streamed live. Powered by Apple's **Foundation Models**, so the model runs **entirely on your Mac**: your logs (with their secrets, tokens and connection strings) **never leave the device** — no cloud, no API keys, **no subscription**. Requires Apple Intelligence on a supported Mac.
 - **Dashboard** — container, machine, and image counts at a glance, quick actions (create container/machine, pull image), and a two-column overview of available containers and machines.
 - **Container lifecycle** — create (from an image or a Dockerfile build), start, stop, restart, edit settings (ports, volumes, environment), delete. Editing recreates the container with the new configuration.
 - **Container machines** — manage the Linux VMs that host containers (WWDC 2026): create, start/stop, edit (CPUs, memory, home mount), delete, with Info / Shell / Logs tabs per machine.
@@ -36,6 +37,7 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 
 - macOS 26 or later (Apple silicon)
 - [Apple Container CLI](https://github.com/apple/container/releases) installed
+- Apple Intelligence enabled (optional) — only needed for the on-device AI log analysis; everything else works without it
 
 ## Getting started
 

@@ -7,6 +7,30 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-07
+
+### Added
+- **AI log analysis (on-device)** — a new **Explain** action in the Logs
+  tab of both containers and machines. It reads the current log output and
+  produces a concise Markdown diagnostic — a health summary, the errors and
+  warnings it found (quoted verbatim), the likely cause, and concrete
+  suggested next steps — streamed live as it's generated.
+  - Powered by Apple's **Foundation Models** framework: the model runs
+    **entirely on-device**. Your logs — which routinely carry secrets,
+    tokens and connection strings — **never leave your Mac**. No cloud, no
+    API keys, **no subscription**.
+  - Sends only a relevance-filtered slice of the log (the recent tail plus
+    lines that look like errors or warnings) to fit the on-device model's
+    context window, and marks omitted stretches so nothing is misread as
+    continuous.
+  - Requires **Apple Intelligence** enabled on a supported Mac (macOS 26+);
+    the app explains clearly when it isn't available and why.
+
+### Notes
+- Verified compatible with Apple `container` CLI **1.1.0** (no breaking CLI
+  changes despite the release-notes legend; JSON shapes unchanged from
+  1.0.0). Full parser regression + unit suite passed.
+
 ## [2.0.2] - 2026-06-26
 
 ### Added
