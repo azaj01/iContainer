@@ -7,6 +7,14 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-07-08
+
+### Changed
+- Release builds are now signed with a **Developer ID Application**
+  certificate and **notarized by Apple**. Gatekeeper accepts the app on
+  first launch, so the old right-click → Open / `xattr` workaround is no
+  longer needed. No functional code changes in this release.
+
 ## [2.1.1] - 2026-07-08
 
 ### Fixed

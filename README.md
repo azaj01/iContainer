@@ -56,15 +56,11 @@ hour) and surfaces an in-app banner plus a one-shot popup whenever your
 running version is older than the latest published tag. You can also trigger
 a check on demand from the **iContainer ▸ Check for Updates…** menu item.
 
-> **Note on the first launch** — release builds are currently not notarized
-> (the project doesn't have a paid Apple Developer account yet). macOS will
-> block the app the first time: right-click the app → **Open**, or allow it
-> under **System Settings → Privacy & Security → Open Anyway**.
-> Alternatively, clear the quarantine flag from the terminal:
->
-> ```sh
-> xattr -d com.apple.quarantine /Applications/iContainer.app
-> ```
+> **First launch** — release builds are signed with a Developer ID
+> certificate and notarized by Apple, so macOS opens the app without a
+> Gatekeeper warning. (Builds up to and including 2.1.1 were unnotarized; if
+> you're on one of those, right-click the app → **Open** once, or run
+> `xattr -d com.apple.quarantine /Applications/iContainer.app`.)
 
 ### Install via Homebrew
 
