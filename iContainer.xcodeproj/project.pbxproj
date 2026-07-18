@@ -12,6 +12,7 @@
 		0363BE992E21BB0200FE2CE1 /* ContainerizationIO in Frameworks */ = {isa = PBXBuildFile; productRef = 0363BE982E21BB0200FE2CE1 /* ContainerizationIO */; };
 		03D40FC32F5F0C75006C576F /* ContainerImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D40FC22F5F0C75006C576F /* ContainerImage.swift */; };
 		03D40FC52F5F0DBD006C576F /* ImagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D40FC42F5F0DBD006C576F /* ImagesView.swift */; };
+		5AFEED0000000000000000A3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5AFEED0000000000000000A2 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,7 @@
 				0363BE912E21BB0200FE2CE1 /* Containerization in Frameworks */,
 				0363BE932E21BB0200FE2CE1 /* ContainerizationOCI in Frameworks */,
 				0363BE992E21BB0200FE2CE1 /* ContainerizationIO in Frameworks */,
+				5AFEED0000000000000000A3 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,6 +110,7 @@
 				0363BE902E21BB0200FE2CE1 /* Containerization */,
 				0363BE922E21BB0200FE2CE1 /* ContainerizationOCI */,
 				0363BE982E21BB0200FE2CE1 /* ContainerizationIO */,
+				5AFEED0000000000000000A2 /* Sparkle */,
 			);
 			productName = iContainer;
 			productReference = 0363BE812E21BAAF00FE2CE1 /* iContainer.app */;
@@ -166,6 +169,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0363BE8F2E21BB0200FE2CE1 /* XCRemoteSwiftPackageReference "containerization" */,
+				5AFEED0000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0363BE822E21BAAF00FE2CE1 /* Products */;
@@ -355,11 +359,12 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = R6A9C6AUKJ;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = iContainer/Info.plist;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -367,7 +372,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nicoemanuelli.iContainer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -388,11 +393,12 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = R6A9C6AUKJ;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = iContainer/Info.plist;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -400,7 +406,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nicoemanuelli.iContainer;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -496,6 +502,14 @@
 				minimumVersion = 0.3.0;
 			};
 		};
+		5AFEED0000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -513,6 +527,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0363BE8F2E21BB0200FE2CE1 /* XCRemoteSwiftPackageReference "containerization" */;
 			productName = ContainerizationIO;
+		};
+		5AFEED0000000000000000A2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5AFEED0000000000000000A1 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -16,6 +16,7 @@ struct iContainerApp: App {
     @StateObject private var appNavigation = AppNavigation()
     @StateObject private var releaseChecker = ContainerReleaseChecker()
     @StateObject private var appReleaseChecker = AppReleaseChecker()
+    @StateObject private var updater = UpdaterViewModel()
 
     // Scene-level prefs use `@AppStorage` (SwiftUI-safe) directly on
     // the UserDefaults keys that `SettingsManager` writes to. This
@@ -122,24 +123,17 @@ struct iContainerApp: App {
 
         // App ▸ Check for Updates… — sits in the standard "appInfo" group
         // so it shows up right under the "About iContainer" item, matching
-        // the placement users expect from native macOS apps.
+        // the placement users expect from native macOS apps. Driven by
+        // Sparkle, which downloads, verifies and installs the update in place
+        // (and shows its own "you're up to date" / progress UI). Disabled
+        // while a check is already running.
         CommandGroup(after: .appInfo) {
             Button {
-                Task {
-                    await appReleaseChecker.checkForUpdateIfNeeded(force: true)
-                    if appReleaseChecker.isUpdateAvailable {
-                        appReleaseChecker.presentUpdateAlertIfAvailable()
-                    } else {
-                        let alert = NSAlert()
-                        alert.messageText = "You're up to date"
-                        alert.informativeText = "iContainer v\(appReleaseChecker.installedVersion) is the latest version."
-                        alert.alertStyle = .informational
-                        alert.runModal()
-                    }
-                }
+                updater.checkForUpdates()
             } label: {
                 Label("Check for Updates…", systemImage: "arrow.down.circle")
             }
+            .disabled(!updater.canCheckForUpdates)
         }
 
         // File ▸ New / Pull — replaces the default "New Item" group.

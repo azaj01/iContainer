@@ -16,8 +16,6 @@ final class AppReleaseChecker: ObservableObject {
     @Published private(set) var isChecking: Bool = false
     @Published var shouldPresentUpdateAlert: Bool = false
 
-    private var alertedAboutVersion: String?
-
     static let releasesPageURL = URL(string: "https://github.com/nico81/iContainer/releases")!
     private static let latestReleaseAPI = URL(string: "https://api.github.com/repos/nico81/iContainer/releases/latest")!
     private static let recheckInterval: TimeInterval = 3600
@@ -74,17 +72,8 @@ final class AppReleaseChecker: ObservableObject {
             latestReleaseName = (json["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             latestReleaseNotes = (json["body"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             lastFetchedAt = Date()
-            refreshUpdateAlertState()
         } catch {
             // Network errors are non-fatal: the banner simply stays hidden.
-        }
-    }
-
-    private func refreshUpdateAlertState() {
-        guard isUpdateAvailable, let latest = latestVersion else { return }
-        if alertedAboutVersion != latest {
-            alertedAboutVersion = latest
-            shouldPresentUpdateAlert = true
         }
     }
 

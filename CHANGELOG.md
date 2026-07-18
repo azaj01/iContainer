@@ -7,6 +7,22 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-18
+
+### Added
+- **Automatic updates** via [Sparkle](https://sparkle-project.org). iContainer
+  now checks for new versions in the background and, when one is available,
+  shows a prompt with the release notes and installs the update in place on
+  your confirmation — no more downloading a zip by hand. **Check for
+  Updates…** in the app menu triggers a check on demand. Updates are verified
+  against a built-in EdDSA public key and only install if signed by the
+  maintainer, on top of the existing Developer ID notarization.
+
+### Changed
+- The old "update available" popup (which only linked to the Releases page) is
+  retired in favour of Sparkle's install flow. The Dashboard still shows a
+  "What's new" card with the latest release notes.
+
 ## [2.1.2] - 2026-07-08
 
 ### Changed

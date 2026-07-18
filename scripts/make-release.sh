@@ -91,6 +91,30 @@ else
   echo "Skipping notarization (ad-hoc build or NOTARIZE=0)."
 fi
 
+# Sparkle appcast — only for Developer-ID builds (needs the EdDSA private key
+# in the keychain, created once via Sparkle's `generate_keys`). Regenerates a
+# single-item appcast.xml at the repo root advertising this version, with the
+# enclosure pointing at the GitHub release asset URL. Signing uses the keychain
+# key automatically. Commit + push appcast.xml so SUFeedURL serves the update.
+if [[ "$IDENTITY" != "-" && "${APPCAST:-1}" == "1" ]]; then
+  SPARKLE_BIN=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*artifacts/sparkle/Sparkle/bin" -type d 2>/dev/null | head -1)
+  if [[ -n "$SPARKLE_BIN" && -x "$SPARKLE_BIN/generate_appcast" ]]; then
+    echo "Generating Sparkle appcast..."
+    APPCAST_DIR=$(mktemp -d /tmp/icontainer-appcast.XXXXXX)
+    cp "$ZIP" "$APPCAST_DIR/"
+    "$SPARKLE_BIN/generate_appcast" \
+      --download-url-prefix "https://github.com/nico81/iContainer/releases/download/v${VERSION}/" \
+      --link "https://github.com/nico81/iContainer" \
+      -o appcast.xml \
+      "$APPCAST_DIR"
+    rm -rf "$APPCAST_DIR"
+    echo "Wrote appcast.xml — commit + push it so the update feed serves v${VERSION}."
+  else
+    echo "WARNING: Sparkle tools not found under DerivedData; skipping appcast." >&2
+    echo "         Resolve packages (open the project in Xcode) and re-run." >&2
+  fi
+fi
+
 rm -rf "$DERIVED"
 echo "Done: $ZIP"
 echo "Attach it to the GitHub release for tag v${VERSION}."

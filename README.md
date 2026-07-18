@@ -27,7 +27,7 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 - **Per-container detail tabs** — Info (network, mounts, DNS, env, exposed-port browser links), Stats with charts, persistent Shell session, Logs with follow mode.
 - **Images** — list, pull, inspect, delete; registry login with guided error handling for auth failures.
 - **Apple container service** — start/stop the system service, view its status, version, service-wide stats, and live system logs.
-- **Update check** — notifies you when a newer release of the `container` CLI (or of iContainer itself) is available on GitHub.
+- **Automatic updates** — iContainer keeps itself up to date via [Sparkle](https://sparkle-project.org): it checks in the background and installs new versions in place (with your confirmation and the release notes), verified by signature. It also notifies you when a newer release of the `container` CLI is available.
 - **Notifications** — optional system notifications when a container stops or an action fails.
 - **Settings** — theme, launch at login, auto-start service, quit behavior, polling cadence, confirmation dialogs, default shell, terminal font, custom CLI path, default registry.
 - **Menu bar extra** — control containers and machines and the service without opening the main window.
@@ -51,10 +51,12 @@ A native macOS app to manage [Apple Container](https://github.com/apple/containe
 
 If the CLI is missing, the app shows a setup screen with a download link instead of the main UI.
 
-The app checks GitHub for new iContainer releases on launch (cached for one
-hour) and surfaces an in-app banner plus a one-shot popup whenever your
-running version is older than the latest published tag. You can also trigger
-a check on demand from the **iContainer ▸ Check for Updates…** menu item.
+iContainer updates itself via [Sparkle](https://sparkle-project.org): it
+checks for new versions in the background and, when one is available, shows a
+prompt with the release notes and installs the update in place once you
+confirm. Updates are verified against a built-in signature and only install if
+signed by the maintainer. You can also trigger a check on demand from the
+**iContainer ▸ Check for Updates…** menu item.
 
 > **First launch** — release builds are signed with a Developer ID
 > certificate and notarized by Apple, so macOS opens the app without a
