@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iContainer — a native macOS GUI for Apple's container CLI</title>
+<meta name="description" content="iContainer is a free, open-source native macOS app that puts Apple's container CLI in a clean SwiftUI interface — container lifecycle, images, machines, and on-device AI log analysis, with no cloud and no subscription.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" href="images/favicon.png">
+<link rel="apple-touch-icon" href="images/icon.png">
+
+<meta property="og:title" content="iContainer — a native macOS GUI for Apple's container CLI">
+<meta property="og:description" content="Manage containers, images, and machines with a native SwiftUI app — plus on-device AI log analysis, private by design.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="images/home-light.png">
+
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --bg: #ffffff;
+    --bg-alt: #f5f5f7;
+    --bg-alt-2: #ececef;
+    --text: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --border: #d8d8dc;
+    --accent: #6c5ce7;
+    --accent-hover: #5a4ad6;
+    --accent-contrast: #ffffff;
+    --card-bg: #ffffff;
+    --card-border: rgba(0, 0, 0, 0.08);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.14);
+    --code-bg: #1d1d1f;
+    --code-text: #f2f2f4;
+    --code-border: rgba(255, 255, 255, 0.08);
+    --pill-bg: rgba(108, 92, 231, 0.1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0b0d;
+      --bg-alt: #17171a;
+      --bg-alt-2: #1e1e22;
+      --text: #f2f2f4;
+      --text-secondary: #a3a3a8;
+      --border: #302f33;
+      --accent: #a394f9;
+      --accent-hover: #b8acfb;
+      --accent-contrast: #12101d;
+      --card-bg: #17171a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.45);
+      --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+      --code-bg: #000000;
+      --code-text: #f2f2f4;
+      --code-border: rgba(255, 255, 255, 0.1);
+      --pill-bg: rgba(163, 148, 249, 0.14);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  img { max-width: 100%; display: block; }
+
+  a { color: var(--accent); }
+
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- Nav ---------- */
+
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(14px);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .brand-mark {
+    font-size: 1.3rem;
+    line-height: 1;
+  }
+
+  .brand-mark img {
+    width: 26px;
+    height: 26px;
+    display: block;
+    border-radius: 6px;
+  }
+
+  .brand .accent-letter { color: var(--accent); }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+
+  .nav-links a:not(.btn) {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+
+  .nav-links a:not(.btn):hover { color: var(--text); }
+
+  @media (max-width: 640px) {
+    .nav-links a:not(.btn) { display: none; }
+  }
+
+  /* ---------- Buttons ---------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .btn:active { transform: translateY(1px); }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-md); }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border);
+  }
+
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-small { padding: 8px 14px; font-size: 0.85rem; }
+
+  /* ---------- Hero ---------- */
+
+  .hero {
+    padding: 76px 0 12px;
+    text-align: center;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--pill-bg);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 20px;
+  }
+
+  .hero h1 {
+    font-size: clamp(2.4rem, 5.5vw, 3.75rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+    font-weight: 700;
+  }
+
+  .hero .tagline {
+    font-size: clamp(1.1rem, 2.4vw, 1.4rem);
+    color: var(--text-secondary);
+    max-width: 680px;
+    margin: 0 auto 14px;
+    font-weight: 500;
+  }
+
+  .hero .desc {
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    max-width: 620px;
+    margin: 0 auto 34px;
+  }
+
+  .hero code {
+    background: var(--bg-alt-2);
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 0.92em;
+  }
+
+  .cta-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 56px;
+  }
+
+  .platform-note {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: -40px;
+    margin-bottom: 56px;
+  }
+
+  .hero-shot {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 14px;
+    background: var(--bg-alt);
+    border: 1px solid var(--card-border);
+    border-radius: 24px;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .hero-shot img {
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    border: 1px solid var(--card-border);
+  }
+
+  /* ---------- Sections ---------- */
+
+  section { padding: 96px 0; }
+
+  .section-head {
+    text-align: center;
+    max-width: 640px;
+    margin: 0 auto 52px;
+  }
+
+  .section-head .kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .section-head h2 {
+    font-size: clamp(1.7rem, 3.4vw, 2.3rem);
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+  }
+
+  .section-head p {
+    color: var(--text-secondary);
+    font-size: 1.05rem;
+    margin: 0;
+  }
+
+  #features { background: var(--bg-alt); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+  /* ---------- Feature grid ---------- */
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+  }
+
+  .feature-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 26px 24px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+  }
+
+  .feature-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+
+  .feature-card.highlight {
+    grid-column: span 2;
+    background: linear-gradient(155deg, var(--card-bg) 60%, var(--pill-bg));
+    border-color: var(--card-border);
+  }
+
+  @media (max-width: 640px) {
+    .feature-card.highlight { grid-column: span 1; }
+  }
+
+  .feature-icon {
+    font-size: 1.7rem;
+    margin-bottom: 14px;
+    line-height: 1;
+  }
+
+  .feature-card h3 {
+    font-size: 1.08rem;
+    margin: 0 0 8px;
+    letter-spacing: -0.005em;
+  }
+
+  .feature-card p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+  }
+
+  .more-features {
+    margin-top: 44px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 28px 30px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .more-features h3 {
+    margin: 0 0 16px;
+    font-size: 1rem;
+    color: var(--text-secondary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.8rem;
+  }
+
+  .more-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px 28px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .more-list li {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    padding-left: 20px;
+    position: relative;
+  }
+
+  .more-list li::before {
+    content: "\2713";
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .more-list strong { color: var(--text); }
+
+  /* ---------- Install ---------- */
+
+  .install-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+
+  @media (max-width: 760px) {
+    .install-grid { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    min-width: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 28px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .panel h3 {
+    margin: 0 0 6px;
+    font-size: 1.15rem;
+  }
+
+  .panel .panel-sub {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    margin: 0 0 18px;
+  }
+
+  .code-block {
+    position: relative;
+    min-width: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    border-radius: 12px;
+    padding: 44px 20px 18px;
+    overflow-x: auto;
+  }
+
+  .code-block pre {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88rem;
+    color: var(--code-text);
+    white-space: pre;
+  }
+
+  .code-block .comment { color: #9a9aa2; }
+
+  .copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--code-text);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    font-size: 0.78rem;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+
+  .copy-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+  .install-alt {
+    margin-top: 16px;
+    font-size: 0.92rem;
+    color: var(--text-secondary);
+  }
+
+  .req-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .req-list li {
+    display: flex;
+    gap: 12px;
+    font-size: 0.95rem;
+    color: var(--text);
+  }
+
+  .req-list .req-icon {
+    color: var(--accent);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .req-list .req-note {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-top: 2px;
+  }
+
+  /* ---------- Footer ---------- */
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 56px 0 40px;
+    background: var(--bg-alt);
+  }
+
+  .footer-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 28px;
+    margin-bottom: 32px;
+  }
+
+  .footer-brand {
+    max-width: 420px;
+  }
+
+  .footer-brand .brand { margin-bottom: 10px; }
+
+  .footer-brand p {
+    color: var(--text-secondary);
+    font-size: 0.92rem;
+    margin: 0;
+  }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+  }
+
+  .footer-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.92rem;
+  }
+
+  .footer-links a:hover { color: var(--accent); }
+
+  .footer-bottom {
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .coffee-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #ffdd00;
+    color: #1d1d1f;
+    font-weight: 700;
+    padding: 9px 16px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 0.88rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .coffee-link:hover { filter: brightness(0.96); }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true"><img src="images/icon.png" alt=""></span>
+      <span><span class="accent-letter">i</span>Container</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/nico81/iContainer">GitHub</a>
+      <a class="btn btn-primary btn-small" href="https://github.com/nico81/iContainer/releases/latest">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero wrap">
+    <span class="eyebrow">Free &amp; open source · MIT licensed</span>
+    <h1>iContainer</h1>
+    <p class="tagline">A native macOS app for Apple's <code>container</code> CLI</p>
+    <p class="desc">
+      Manage containers, images, logs, stats, and an interactive shell through a clean
+      SwiftUI interface — built on top of the official <code>container</code> CLI, with
+      on-device AI log analysis that never leaves your Mac.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/nico81/iContainer/releases/latest">Download for macOS</a>
+      <a class="btn btn-secondary" href="https://github.com/nico81/iContainer">View on GitHub</a>
+    </div>
+
+    <div class="hero-shot">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="images/home-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="images/home-light.png">
+        <img src="images/home-light.png" width="1000" height="642" alt="iContainer dashboard showing container, machine, and image counts, quick actions, and lists of available containers and machines">
+      </picture>
+    </div>
+  </section>
+
+  <section id="features" aria-labelledby="features-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Features</p>
+        <h2 id="features-heading">Everything the CLI does, with a native interface</h2>
+        <p>Pulled straight from the app's real feature set — no vaporware.</p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="feature-card highlight">
+          <div class="feature-icon" aria-hidden="true">🧠</div>
+          <h3>AI log analysis, on-device</h3>
+          <p>
+            One <strong>Explain</strong> click on any container's or machine's Logs tab turns raw
+            output into a concise diagnostic: a health summary, the errors and warnings it found
+            (quoted), the likely cause, and concrete next steps — streamed live. Powered by
+            Apple's <strong>Foundation Models</strong>, so the model runs entirely on your Mac:
+            your logs — secrets, tokens, connection strings and all — never leave the device.
+            No cloud, no API keys, <strong>no subscription</strong>. Requires Apple Intelligence
+            on a supported Mac.
+          </p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">📦</div>
+          <h3>Container lifecycle</h3>
+          <p>Create from an image or a Dockerfile build, start, stop, restart, edit settings (ports, volumes, environment), and delete.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🖥️</div>
+          <h3>Container machines</h3>
+          <p>Manage the Linux VMs that host containers: create, start/stop, edit CPUs, memory, and home mount, delete — with Info, Shell, and Logs tabs per machine.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🗂️</div>
+          <h3>Images &amp; registry</h3>
+          <p>List, pull, inspect, and delete images, with registry login and guided error handling for authentication failures.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">📊</div>
+          <h3>Info, Stats, Shell &amp; Logs</h3>
+          <p>Per-container detail tabs: network/mounts/DNS/env in Info, live charts in Stats, a persistent Shell session, and Logs with follow mode.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🔄</div>
+          <h3>Automatic updates</h3>
+          <p>iContainer keeps itself current via <a href="https://sparkle-project.org">Sparkle</a>: it checks in the background and installs new versions in place, with your confirmation and signature verification.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">🎛️</div>
+          <h3>Menu bar extra</h3>
+          <p>Control containers, machines, and the Apple container service without opening the main window.</p>
+        </article>
+
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⌨️</div>
+          <h3>Keyboard shortcuts</h3>
+          <p>A full menu bar command set — ⌘N new container, ⇧⌘P pull image, ⌘1–⌘4 detail tabs, and more.</p>
+        </article>
+      </div>
+
+      <div class="more-features">
+        <h3>Also included</h3>
+        <ul class="more-list">
+          <li><strong>Dashboard</strong> — counts at a glance and quick actions</li>
+          <li><strong>Sidebar</strong> — reorderable sections, search, filters, live status</li>
+          <li><strong>Apple container service</strong> — start/stop, status, version, stats, live logs</li>
+          <li><strong>Notifications</strong> — optional alerts on stop or failure</li>
+          <li><strong>Settings</strong> — theme, launch at login, polling cadence, default shell, terminal font, custom CLI path, default registry</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Install</p>
+        <h2 id="install-heading">Get iContainer</h2>
+        <p>Homebrew keeps you on the latest release automatically — or grab the DMG directly.</p>
+      </div>
+
+      <div class="install-grid">
+        <div class="panel">
+          <h3>Install via Homebrew</h3>
+          <p class="panel-sub">The easiest way to stay up to date.</p>
+          <div class="code-block">
+            <button class="copy-btn" type="button" onclick="copyInstallCmd(this)">Copy</button>
+            <pre id="brew-cmd"><span class="comment"># add the tap, then install the cask</span>
+brew tap nico81/icontainer
+brew install --cask icontainer
+
+<span class="comment"># later, to upgrade:</span>
+brew upgrade --cask icontainer</pre>
+          </div>
+          <p class="install-alt">
+            Or download the signed &amp; notarized <code>.dmg</code> from the
+            <a href="https://github.com/nico81/iContainer/releases/latest">latest GitHub release</a>
+            and drag <strong>iContainer</strong> into Applications.
+          </p>
+        </div>
+
+        <div class="panel">
+          <h3>Requirements</h3>
+          <p class="panel-sub">What you need before you start.</p>
+          <ul class="req-list">
+            <li>
+              <span class="req-icon" aria-hidden="true">✓</span>
+              <span>macOS 26 or later (Apple silicon)</span>
+            </li>
+            <li>
+              <span class="req-icon" aria-hidden="true">✓</span>
+              <span>
+                <a href="https://github.com/apple/container/releases">Apple Container CLI</a> installed
+              </span>
+            </li>
+            <li>
+              <span class="req-icon" aria-hidden="true">✓</span>
+              <span>
+                Apple Intelligence enabled
+                <span class="req-note">Optional — only needed for on-device AI log analysis; everything else works without it.</span>
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true"><img src="images/icon.png" alt=""></span>
+          <span><span class="accent-letter">i</span>Container</span>
+        </a>
+        <p>
+          Full disclosure: iContainer was <strong>vibe-coded</strong> — designed and written
+          hand-in-hand with <a href="https://claude.com/claude-code">Claude Code</a>. The ideas,
+          the direction, and every "no, not like that" are human; a lot of the typing isn't. It
+          ships with unit tests and gets manually run on each change, but it's a hobby project
+          built for fun on top of brand-new Apple tech — so read the code, kick the tires, and
+          don't run it anywhere you'd cry about. PRs and issues very welcome.
+        </p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/nico81/iContainer">GitHub</a>
+        <a href="https://github.com/nico81/iContainer/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/nico81/iContainer/releases/latest">Releases</a>
+        <a href="https://github.com/nico81/iContainer/blob/main/LICENSE">MIT License</a>
+        <a href="https://www.buymeacoffee.com/nicoemanuelli">Buy Me a Coffee</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 iContainer · Released under the MIT License</span>
+      <a class="coffee-link" href="https://www.buymeacoffee.com/nicoemanuelli">☕ Buy me a coffee</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function copyInstallCmd(btn) {
+    var text = document.getElementById('brew-cmd').innerText;
+    var done = function () {
+      var original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = original; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      done();
+    }
+  }
+</script>
+
+</body>
+</html>
