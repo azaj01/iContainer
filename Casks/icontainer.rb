@@ -1,6 +1,6 @@
 cask "icontainer" do
-  version "2.1.2"
-  sha256 "d870f95c031bc2a44a5365d789c3a480787254dd35b36163fa3bcc008e627a2a"
+  version "2.2.0"
+  sha256 "3b79baf52e0e5e793d572a96ecc41e7b4084246f72f3366bcb01959a0e608599"
 
   url "https://github.com/nico81/iContainer/releases/download/v#{version}/iContainer-v#{version}.zip"
   name "iContainer"
@@ -14,6 +14,8 @@ cask "icontainer" do
 
   depends_on macos: :tahoe
   depends_on arch: :arm64
+
+  auto_updates true
 
   app "iContainer.app"
 
