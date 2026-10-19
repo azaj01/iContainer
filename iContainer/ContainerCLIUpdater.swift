@@ -242,7 +242,15 @@ final class ContainerCLIUpdater: ObservableObject {
         }
         downloadTask = task
         defer { downloadTask = nil }
-        let received = try await downloader.run(task: task, moveTo: destination)
+        let received: Int64
+        do {
+            received = try await downloader.run(task: task, moveTo: destination)
+        } catch {
+            // Cancelled or failed: URLSession discards its partial file; drop
+            // our directory too so nothing lingers.
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
         phase = .downloading(fraction: 1)
         append("Downloaded \(ByteCountFormatter.string(fromByteCount: received, countStyle: .file)).")
         return destination

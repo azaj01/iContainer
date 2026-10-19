@@ -20,8 +20,7 @@ struct ContainerCLIUpdateSheet: View {
     private var runningContainers: [Container] { containerManager.containers.filter { $0.status == .running } }
 
     var body: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Update Apple container CLI").font(.headline)
 
             if let plan {
@@ -45,7 +44,8 @@ struct ContainerCLIUpdateSheet: View {
                         }
                         .padding(8)
                     }
-                    .frame(height: 120)
+                    // Grows with the log, caps at ~8 lines.
+                    .frame(height: min(CGFloat(updater.log.count) * 17 + 18, 160))
                     .background(Color(NSColor.textBackgroundColor).opacity(0.5), in: RoundedRectangle(cornerRadius: AppRadius.small))
                     .onChange(of: updater.log.count) { _, _ in proxy.scrollTo("END", anchor: .bottom) }
                 }
@@ -71,13 +71,12 @@ struct ContainerCLIUpdateSheet: View {
                     .disabled(updater.phase.isActive)
             }
 
-            Text("Downloads the signed installer package from the official GitHub release, verifies it is signed by Apple (Developer ID Installer: Apple Inc. - Containerization) and notarized, stops the container service, runs the installer through macOS's administrator prompt — iContainer never sees your password — then starts the service again. Same steps as Apple's update-container.sh, plus the signature check.")
+            Text("Signed Apple package from the official release, verified before install. The password prompt is macOS's own; iContainer never sees it. Same steps as Apple's update-container.sh.")
                 .font(.caption2).foregroundColor(.secondary)
         }
         .padding()
-        }
-        .frame(minWidth: 560, idealWidth: 640, maxWidth: .infinity, minHeight: 420, idealHeight: 600, maxHeight: .infinity)
-        .background(WindowResizeConfigurator(minSize: CGSize(width: 560, height: 420), shouldCenter: true))
+        .frame(width: 600)
+        .fixedSize(horizontal: false, vertical: true)
         .task {
             guard plan == nil else { return }
             do {
@@ -89,18 +88,23 @@ struct ContainerCLIUpdateSheet: View {
 
     private func planSummary(_ plan: ContainerCLIUpdater.Plan) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            DetailRow(label: "Installed", value: releaseChecker.installedVersion.map { "v\($0)" } ?? "-")
-            DetailRow(label: "Latest", value: "v\(plan.version)")
-            DetailRow(label: "Install method", value: plan.method.label)
+            HStack(spacing: 8) {
+                Text(releaseChecker.installedVersion.map { "v\($0)" } ?? "installed ?").font(.title3.monospacedDigit())
+                Image(systemName: "arrow.right").foregroundColor(.secondary)
+                Text("v\(plan.version)").font(.title3.monospacedDigit().weight(.semibold))
+                Spacer()
+                Text(plan.method.label).font(.caption).foregroundColor(.secondary)
+            }
             if case .package = plan.method {
-                DetailRow(label: "Package", value: "\(plan.assetName) · \(ByteCountFormatter.string(fromByteCount: plan.assetSize, countStyle: .file))", isMonospaced: true)
+                Text("\(plan.assetName) · \(ByteCountFormatter.string(fromByteCount: plan.assetSize, countStyle: .file))")
+                    .font(.caption.monospaced()).foregroundColor(.secondary)
             }
             if case .unknown = plan.method {
                 Label("Couldn't tell how the CLI was installed; the installer package will be used (it installs under /usr/local).", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundColor(.orange)
             }
             if runningContainers.isEmpty {
-                Text("No containers are running; the service will be stopped and started again.").font(.caption).foregroundColor(.secondary)
+                Text("No containers are running; the service is stopped and started again.").font(.caption).foregroundColor(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Stopping the service stops \(runningContainers.count) running container\(runningContainers.count == 1 ? "" : "s"): \(runningContainers.map(\.name).joined(separator: ", ")). Press Update Now to confirm.", systemImage: "exclamationmark.triangle.fill")
