@@ -155,7 +155,7 @@ struct WelcomeDashboardView: View {
                         .foregroundColor(.secondary)
                 }
                 HStack(spacing: 12) {
-                    Button("Update Now…") { appNavigation.requestCLIUpdate() }
+                    Button("Update Now") { appNavigation.requestCLIUpdate(autoStart: true) }
                         .controlSize(.small)
                     Link(
                         "Download latest release",

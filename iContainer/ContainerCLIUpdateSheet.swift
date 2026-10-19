@@ -8,6 +8,9 @@ struct ContainerCLIUpdateSheet: View {
     @EnvironmentObject var serviceManager: ServiceManager
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @EnvironmentObject var releaseChecker: ContainerReleaseChecker
+    /// Start as soon as the plan is ready. Ignored when running containers
+    /// would be stopped: that case waits for an explicit confirmation.
+    var autoStart = false
     let onClose: () -> Void
 
     @State private var plan: ContainerCLIUpdater.Plan?
@@ -77,7 +80,10 @@ struct ContainerCLIUpdateSheet: View {
         .background(WindowResizeConfigurator(minSize: CGSize(width: 560, height: 420), shouldCenter: true))
         .task {
             guard plan == nil else { return }
-            do { plan = try await updater.preparePlan() } catch { planError = error.localizedDescription }
+            do {
+                plan = try await updater.preparePlan()
+                if autoStart, updater.phase == .idle, runningContainers.isEmpty { start() }
+            } catch { planError = error.localizedDescription }
         }
     }
 
@@ -97,7 +103,7 @@ struct ContainerCLIUpdateSheet: View {
                 Text("No containers are running; the service will be stopped and started again.").font(.caption).foregroundColor(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Stopping the service stops \(runningContainers.count) running container\(runningContainers.count == 1 ? "" : "s"): \(runningContainers.map(\.name).joined(separator: ", "))", systemImage: "exclamationmark.triangle.fill")
+                    Label("Stopping the service stops \(runningContainers.count) running container\(runningContainers.count == 1 ? "" : "s"): \(runningContainers.map(\.name).joined(separator: ", ")). Press Update Now to confirm.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundColor(.orange)
                     Toggle("Start them again after the update", isOn: $restartContainers).toggleStyle(.checkbox).font(.caption)
                         .disabled(updater.phase.isActive)

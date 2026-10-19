@@ -53,6 +53,10 @@ final class AppNavigation: ObservableObject {
     @Published var overviewRequestID = 0
     @Published var settingsRequestID = 0
     @Published var cliUpdateRequestID = 0
+    /// When true the update sheet starts as soon as its plan is ready
+    /// (the banner button is the consent); it still pauses for confirmation
+    /// if running containers would be stopped.
+    @Published var cliUpdateAutoStart = false
     @Published var containerCommandRequest: ContainerCommandRequest?
 
     /// Mirror of the sidebar selection. The selection state itself lives in
@@ -123,7 +127,8 @@ final class AppNavigation: ObservableObject {
         activateApp()
     }
 
-    func requestCLIUpdate() {
+    func requestCLIUpdate(autoStart: Bool = true) {
+        cliUpdateAutoStart = autoStart
         cliUpdateRequestID &+= 1
         activateApp()
     }

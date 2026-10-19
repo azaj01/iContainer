@@ -288,10 +288,10 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
 - Avoid introducing decorative styles that reduce readability for operational data.
 
 ## CLI update from the app
-- Always say up front what will happen (service stop → which running
-  containers stop, download size, administrator prompt, service start) and
-  offer to restart the stopped containers; never start without the user
-  pressing *Update Now*.
+- The *Update Now* button on the banner **is** the consent: the sheet
+  opens and starts immediately (plan shown while it runs). The one
+  exception is when running containers would be stopped — then the sheet
+  names them, offers to restart them, and waits for a second *Update Now*.
 - Verify the package **before** the privileged step and name the signer in
   the log; refuse anything not signed by Apple's Containerization team even
   if notarized.

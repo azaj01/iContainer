@@ -99,7 +99,7 @@ struct ServiceDetailView: View {
                                     .foregroundColor(.accentColor)
                                 Text("A newer version is available.")
                                     .font(.caption)
-                                Button("Update Now…") { appNavigation.requestCLIUpdate() }
+                                Button("Update Now") { appNavigation.requestCLIUpdate(autoStart: true) }
                                     .controlSize(.small)
                                 Link(
                                     "Download",

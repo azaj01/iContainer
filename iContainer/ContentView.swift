@@ -66,6 +66,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var showingDockerImportSheet = false
     @State private var showingCLIUpdateSheet = false
+    @State private var cliUpdateAutoStart = false
     @State private var createDockerContainerID: String?
     @State private var createDockerTranslation: DockerTranslation?
     @State private var createDockerImageStrategy: DockerImageStrategy = .importFromDocker
@@ -218,7 +219,7 @@ struct ContentView: View {
             "Container update available",
             isPresented: $releaseChecker.shouldPresentUpdateAlert
         ) {
-            Button("Update Now…") { showingCLIUpdateSheet = true }
+            Button("Update Now") { cliUpdateAutoStart = true; showingCLIUpdateSheet = true }
             Button("Download") {
                 let url = releaseChecker.latestReleaseURL ?? ContainerReleaseChecker.releasesPageURL
                 NSWorkspace.shared.open(url)
@@ -295,9 +296,10 @@ struct ContentView: View {
             DockerImportSheet(onClose: { showingDockerImportSheet = false })
         }
         .sheet(isPresented: $showingCLIUpdateSheet) {
-            ContainerCLIUpdateSheet(onClose: { showingCLIUpdateSheet = false })
+            ContainerCLIUpdateSheet(autoStart: cliUpdateAutoStart, onClose: { showingCLIUpdateSheet = false })
         }
         .onReceive(appNavigation.$cliUpdateRequestID.dropFirst()) { _ in
+            cliUpdateAutoStart = appNavigation.cliUpdateAutoStart
             showingCLIUpdateSheet = true
         }
         .sheet(isPresented: $showingCreateNetworkSheet) {
