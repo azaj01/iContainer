@@ -166,6 +166,14 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   adds `apiserver.version/commit/build` rows (parsed). `--scheme auto` was
   removed in 1.2.0 (unused). `network`/`volume inspect` are
   `{configuration, id, status}`. Not yet used: `container cp` (1.2.0).
+- Verified compatible with `container` CLI **1.5.0** (2026-10-19, commit
+  `d265d66`; installed via the in-app updater). Live regression of
+  list/inspect (incl. running `status.startedDate` + network keys), image
+  list, machine list/inspect (`machine inspect` has no `--format`; it
+  prints JSON by default), network/volume list, `system status`, `system
+  df`, `system property list`, `stats` table + JSON — all unchanged from
+  1.4.1. 1.5.0 fixes: empty image entrypoints now run (helps Docker clones),
+  DNS egress loss; ⌨️ only `container k8s start` (unused).
 - `container system property list` prints TOML (`[build]`, `[container]`,
   `[dns]`); `CLIParsers.parseSystemProperties` / `systemDNSDomain(from:)`
   read it.

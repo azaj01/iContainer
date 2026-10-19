@@ -19,6 +19,16 @@ The format follows Keep a Changelog, and versions use semantic versioning:
   optionally restarts the containers that were running. Homebrew installs
   are upgraded with `brew upgrade container` instead. Every step is logged
   in the sheet; if anything fails midway the service is started again.
+  The administrator prompt is macOS's own and is attributed to iContainer.
+  The update banner is shown even while the service is stopped (the
+  installed version now comes from `container --version`).
+
+### Notes
+- Verified with Apple `container` CLI **1.5.0** (2026-10-19) — first
+  update performed with the new in-app updater. No JSON shape changes for
+  containers, images, machines, networks, volumes, `system status`,
+  `system df` or `stats`; 1.5.0's breaking change only concerns the k8s
+  plugin, which iContainer doesn't use.
 
 ## [2.4.0] - 2026-09-18
 
