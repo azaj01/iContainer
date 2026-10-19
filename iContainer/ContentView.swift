@@ -63,6 +63,7 @@ struct ContentView: View {
     @EnvironmentObject var releaseChecker: ContainerReleaseChecker
     @EnvironmentObject var appReleaseChecker: AppReleaseChecker
     @EnvironmentObject var dockerManager: DockerWrapper
+    @EnvironmentObject var updater: UpdaterViewModel
     @Environment(\.openWindow) private var openWindow
     @State private var showingDockerImportSheet = false
     @State private var showingCLIUpdateSheet = false
@@ -234,6 +235,9 @@ struct ContentView: View {
             "iContainer update available",
             isPresented: $appReleaseChecker.shouldPresentUpdateAlert
         ) {
+            Button("Install Update…") {
+                DispatchQueue.main.async { updater.checkForUpdates() }
+            }
             Button("Download") {
                 let url = appReleaseChecker.latestReleaseURL ?? AppReleaseChecker.releasesPageURL
                 NSWorkspace.shared.open(url)

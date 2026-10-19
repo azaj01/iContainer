@@ -56,6 +56,7 @@ struct iContainerApp: App {
                 .environmentObject(appReleaseChecker)
                 .environmentObject(dockerManager)
                 .environmentObject(cliUpdater)
+                .environmentObject(updater)
                 .preferredColorScheme(themeColorScheme)
                 .onAppear {
                     appQuitDelegate.serviceManager = serviceManager

@@ -7,6 +7,13 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+### Fixed
+- "A new version of iContainer is available" now has an **Install Update…**
+  button (dashboard card and alert) that hands off to Sparkle's installer.
+  Sparkle deliberately skips its update check on an app's very first launch
+  and otherwise checks once a day, so a fresh install could show the banner
+  without ever offering to install — now it's one click.
+
 ## [2.5.0] - 2026-10-19
 
 ### Added

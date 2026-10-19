@@ -18,6 +18,7 @@ struct WelcomeDashboardView: View {
 
     @EnvironmentObject private var releaseChecker: ContainerReleaseChecker
     @EnvironmentObject private var appNavigation: AppNavigation
+    @EnvironmentObject private var updater: UpdaterViewModel
     @EnvironmentObject private var appReleaseChecker: AppReleaseChecker
     @State private var showingAppReleaseNotes: Bool = false
 
@@ -118,6 +119,14 @@ struct WelcomeDashboardView: View {
                         .foregroundColor(.secondary)
                 }
                 HStack(spacing: 12) {
+                    // Hands off to Sparkle: it fetches the appcast, verifies the
+                    // EdDSA signature and installs in place. Sparkle doesn't
+                    // check on an app's very first launch and otherwise only
+                    // once a day, so this makes the update one click whenever
+                    // the GitHub check already knows a release is out.
+                    Button("Install Update…") { updater.checkForUpdates() }
+                        .controlSize(.small)
+                        .disabled(!updater.canCheckForUpdates)
                     Link(
                         "Download latest release",
                         destination: appReleaseChecker.latestReleaseURL ?? AppReleaseChecker.releasesPageURL
