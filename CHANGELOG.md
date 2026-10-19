@@ -7,6 +7,8 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-19
+
 ### Added
 - **Update the Apple container CLI from the app.** The "newer version
   available" banner (dashboard, Service page, alert) gains *Update Now…*:
