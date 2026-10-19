@@ -411,7 +411,13 @@ struct ContentView: View {
         .onReceive(serviceManager.$serviceDetails) { details in
             // The client is the installed binary; the server lags until the
             // service is restarted after an upgrade.
-            releaseChecker.updateInstalledVersion(details?.clientVersion ?? details?.version)
+            releaseChecker.updateInstalledVersion(details?.clientVersion ?? serviceManager.cliVersion ?? details?.version)
+        }
+        .onReceive(serviceManager.$cliVersion) { cliVersion in
+            // Keeps the update banner alive while the service is stopped.
+            if let cliVersion, serviceManager.serviceDetails?.clientVersion == nil {
+                releaseChecker.updateInstalledVersion(cliVersion)
+            }
         }
         .task {
             await releaseChecker.checkForUpdateIfNeeded()

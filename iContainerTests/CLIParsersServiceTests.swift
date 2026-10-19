@@ -138,6 +138,13 @@ images.total        27
         XCTAssertFalse(d.hasVersionMismatch)
     }
 
+    func testParseCLIVersion() {
+        XCTAssertEqual(CLIParsers.parseCLIVersion("container CLI version 1.4.1 (build: release, commit: 9a8917c)"), "1.4.1")
+        XCTAssertEqual(CLIParsers.parseCLIVersion("container CLI version v0.4.1\n"), "0.4.1")
+        XCTAssertEqual(CLIParsers.parseCLIVersion("1.5.0"), "1.5.0")
+        XCTAssertNil(CLIParsers.parseCLIVersion("no version here"))
+    }
+
     // MARK: - system df
 
     func testParseSystemDiskUsage() {

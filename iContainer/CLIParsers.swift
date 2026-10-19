@@ -559,6 +559,12 @@ nonisolated extension CLIParsers {
         return result
     }
 
+    /// `container CLI version 1.4.1 (build: release, commit: 9a8917c)` → `1.4.1`.
+    static func parseCLIVersion(_ output: String) -> String? {
+        regexFirstMatch(in: output, pattern: #"version\s+v?(\d+(?:\.\d+)+)"#)
+            ?? regexFirstMatch(in: output, pattern: #"(\d+\.\d+(?:\.\d+)+)"#)
+    }
+
     /// The DNS domain the container service registers container names under
     /// (`[dns] domain = "test"` in `~/.config/container/config.toml`), or
     /// `nil` when none is configured — in which case containers can only

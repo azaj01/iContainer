@@ -50,6 +50,11 @@ class ServiceManager: ObservableObject {
     }
 
     @Published var serviceDetails: ServiceDetails?
+    /// Version of the installed `container` binary (`container --version`),
+    /// available even while the service is stopped — unlike
+    /// `serviceDetails`, which needs a running apiserver. Drives the
+    /// "CLI update available" check.
+    @Published var cliVersion: String?
     /// `container system property list` as `[section: [key: value]]`,
     /// refreshed with every status check (cheap). Feeds the "Service
     /// Defaults" section of the Info tab.
@@ -64,6 +69,7 @@ class ServiceManager: ObservableObject {
         guard Self.resolveCLIPath() != nil else {
             return false
         }
+        await refreshCLIVersion()
 
         do {
             let result = try await Task.detached(priority: .utility) {
@@ -83,6 +89,16 @@ class ServiceManager: ObservableObject {
         } catch {
             return false
         }
+    }
+
+    /// Reads `container --version` (works with the service stopped).
+    func refreshCLIVersion() async {
+        let result = try? await Task.detached(priority: .utility) {
+            try Self.runCommandBlocking(["--version"])
+        }.value
+        guard let result, result.status == 0 else { return }
+        let parsed = CLIParsers.parseCLIVersion(result.output)
+        if parsed != cliVersion { cliVersion = parsed }
     }
 
     /// Reads `container system property list` (TOML, cheap).
