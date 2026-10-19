@@ -17,6 +17,7 @@ struct ContainerCLIUpdateSheet: View {
     private var runningContainers: [Container] { containerManager.containers.filter { $0.status == .running } }
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             Text("Update Apple container CLI").font(.headline)
 
@@ -41,7 +42,7 @@ struct ContainerCLIUpdateSheet: View {
                         }
                         .padding(8)
                     }
-                    .frame(height: 140)
+                    .frame(height: 120)
                     .background(Color(NSColor.textBackgroundColor).opacity(0.5), in: RoundedRectangle(cornerRadius: AppRadius.small))
                     .onChange(of: updater.log.count) { _, _ in proxy.scrollTo("END", anchor: .bottom) }
                 }
@@ -53,10 +54,14 @@ struct ContainerCLIUpdateSheet: View {
                     Button(updater.phase == .idle ? "Update Now" : "Try Again") { start() }
                         .keyboardShortcut(.defaultAction)
                         .disabled(plan == nil)
+                case .downloading:
+                    ProgressView().scaleEffect(0.8)
+                    Button("Cancel") { updater.cancelDownload() }
                 case .done:
                     EmptyView()
                 default:
                     ProgressView().scaleEffect(0.8)
+                    Text("Please wait — the service is being updated.").font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
                 Button(updater.phase.isActive ? "Working…" : "Close") { updater.reset(); onClose() }
@@ -67,7 +72,9 @@ struct ContainerCLIUpdateSheet: View {
                 .font(.caption2).foregroundColor(.secondary)
         }
         .padding()
-        .frame(minWidth: 560, idealWidth: 620, maxWidth: .infinity, minHeight: 360, idealHeight: 480, maxHeight: .infinity)
+        }
+        .frame(minWidth: 560, idealWidth: 640, maxWidth: .infinity, minHeight: 420, idealHeight: 600, maxHeight: .infinity)
+        .background(WindowResizeConfigurator(minSize: CGSize(width: 560, height: 420), shouldCenter: true))
         .task {
             guard plan == nil else { return }
             do { plan = try await updater.preparePlan() } catch { planError = error.localizedDescription }

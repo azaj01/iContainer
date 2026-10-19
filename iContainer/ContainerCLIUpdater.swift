@@ -217,40 +217,44 @@ final class ContainerCLIUpdater: ObservableObject {
 
     // MARK: - Steps
 
+    private var downloadTask: URLSessionDownloadTask?
+
+    /// Cancels an in-flight download (no-op in other phases).
+    func cancelDownload() {
+        downloadTask?.cancel()
+    }
+
     private func download(_ plan: Plan) async throws -> URL {
         phase = .downloading(fraction: 0)
         let sizeText = ByteCountFormatter.string(fromByteCount: plan.assetSize, countStyle: .file)
         append("Downloading \(plan.assetName) (\(sizeText))…")
+        Self.removeStaleDownloadDirectories()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("icontainer-cli-update-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appendingPathComponent(plan.assetName)
 
-        let (bytes, response) = try await URLSession.shared.bytes(from: plan.assetURL)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw NSError(domain: "iContainer.cliUpdater", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))."])
-        }
-        let expected = response.expectedContentLength > 0 ? response.expectedContentLength : plan.assetSize
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: destination)
-        defer { try? handle.close() }
-        var buffer = Data(); buffer.reserveCapacity(1 << 20)
-        var received: Int64 = 0
-        var lastReported = 0.0
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 1 << 20 {
-                try handle.write(contentsOf: buffer); received += Int64(buffer.count); buffer.removeAll(keepingCapacity: true)
-                let fraction = expected > 0 ? Double(received) / Double(expected) : nil
-                if let fraction, fraction - lastReported >= 0.01 { lastReported = fraction; phase = .downloading(fraction: fraction) }
+        let downloader = PackageDownloader()
+        let task = downloader.makeTask(url: plan.assetURL, expectedSize: plan.assetSize) { [weak self] fraction in
+            Task { @MainActor in
+                guard let self, case .downloading = self.phase else { return }
+                self.phase = .downloading(fraction: fraction)
             }
         }
-        if !buffer.isEmpty { try handle.write(contentsOf: buffer); received += Int64(buffer.count) }
-        if expected > 0, received != expected {
-            throw NSError(domain: "iContainer.cliUpdater", code: 4, userInfo: [NSLocalizedDescriptionKey: "Download incomplete (\(received) of \(expected) bytes)."])
-        }
+        downloadTask = task
+        defer { downloadTask = nil }
+        let received = try await downloader.run(task: task, moveTo: destination)
         phase = .downloading(fraction: 1)
         append("Downloaded \(ByteCountFormatter.string(fromByteCount: received, countStyle: .file)).")
         return destination
+    }
+
+    /// Leftovers from an interrupted run (quit mid-download).
+    nonisolated private static func removeStaleDownloadDirectories() {
+        let tmp = FileManager.default.temporaryDirectory
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil) else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix("icontainer-cli-update-") {
+            try? FileManager.default.removeItem(at: entry)
+        }
     }
 
     private func verify(_ pkgURL: URL) async throws {
@@ -296,5 +300,75 @@ final class ContainerCLIUpdater: ObservableObject {
         guard !line.isEmpty else { return }
         log.append(line)
         logger.info("\(line)")
+    }
+}
+
+// MARK: - Download task bridge
+
+/// Wraps a `URLSessionDownloadTask` (redirect-following, kernel-speed,
+/// native progress) in an async call. Byte-wise `URLSession.bytes` was far
+/// too slow for a 118 MB package in a debug build.
+private final class PackageDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private var continuation: CheckedContinuation<Int64, Error>?
+    private var destination: URL?
+    private var expectedSize: Int64 = 0
+    private var onProgress: ((Double?) -> Void)?
+    private var moveError: Error?
+    private var received: Int64 = 0
+    private lazy var session: URLSession = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+
+    func makeTask(url: URL, expectedSize: Int64, onProgress: @escaping (Double?) -> Void) -> URLSessionDownloadTask {
+        self.expectedSize = expectedSize
+        self.onProgress = onProgress
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        return session.downloadTask(with: request)
+    }
+
+    func run(task: URLSessionDownloadTask, moveTo destination: URL) async throws -> Int64 {
+        self.destination = destination
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        received = totalBytesWritten
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : expectedSize
+        onProgress?(total > 0 ? Double(totalBytesWritten) / Double(total) : nil)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // Must move synchronously here: `location` is deleted when this returns.
+        guard let destination else { return }
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: location, to: destination)
+            if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                moveError = NSError(domain: "iContainer.cliUpdater", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed (HTTP \(http.statusCode))."])
+            }
+        } catch {
+            moveError = error
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer { continuation = nil; session.finishTasksAndInvalidate() }
+        if let error {
+            if (error as NSError).code == NSURLErrorCancelled {
+                continuation?.resume(throwing: NSError(domain: "iContainer.cliUpdater", code: 8, userInfo: [NSLocalizedDescriptionKey: "Download cancelled."]))
+            } else {
+                continuation?.resume(throwing: error)
+            }
+        } else if let moveError {
+            continuation?.resume(throwing: moveError)
+        } else {
+            continuation?.resume(returning: received)
+        }
     }
 }
