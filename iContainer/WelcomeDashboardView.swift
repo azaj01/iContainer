@@ -17,6 +17,7 @@ struct WelcomeDashboardView: View {
     let onSelectMachine: (Machine) -> Void
 
     @EnvironmentObject private var releaseChecker: ContainerReleaseChecker
+    @EnvironmentObject private var appNavigation: AppNavigation
     @EnvironmentObject private var appReleaseChecker: AppReleaseChecker
     @State private var showingAppReleaseNotes: Bool = false
 
@@ -153,11 +154,15 @@ struct WelcomeDashboardView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                Link(
-                    "Download latest release",
-                    destination: releaseChecker.latestReleaseURL ?? ContainerReleaseChecker.releasesPageURL
-                )
-                .font(.caption)
+                HStack(spacing: 12) {
+                    Button("Update Now…") { appNavigation.requestCLIUpdate() }
+                        .controlSize(.small)
+                    Link(
+                        "Download latest release",
+                        destination: releaseChecker.latestReleaseURL ?? ContainerReleaseChecker.releasesPageURL
+                    )
+                    .font(.caption)
+                }
             }
             Spacer(minLength: 0)
         }

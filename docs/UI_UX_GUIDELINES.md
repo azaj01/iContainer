@@ -287,6 +287,18 @@ Keep iContainer clear, predictable, and fast for container operations, with mini
   - plaintext doc = logs
 - Avoid introducing decorative styles that reduce readability for operational data.
 
+## CLI update from the app
+- Always say up front what will happen (service stop → which running
+  containers stop, download size, administrator prompt, service start) and
+  offer to restart the stopped containers; never start without the user
+  pressing *Update Now*.
+- Verify the package **before** the privileged step and name the signer in
+  the log; refuse anything not signed by Apple's Containerization team even
+  if notarized.
+- The password prompt is macOS's own; never add a password field in the app.
+- On failure, leave the system usable: restart the service, keep the log
+  visible, offer *Try Again* and the manual *Download* link.
+
 ## Networks and Volumes
 - Same section language as Containers / Machines / Images: reorderable
   header, persisted expand state, search applies, rows hidden while the

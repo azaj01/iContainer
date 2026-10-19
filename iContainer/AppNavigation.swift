@@ -52,6 +52,7 @@ final class AppNavigation: ObservableObject {
     @Published var refreshRequestID = 0
     @Published var overviewRequestID = 0
     @Published var settingsRequestID = 0
+    @Published var cliUpdateRequestID = 0
     @Published var containerCommandRequest: ContainerCommandRequest?
 
     /// Mirror of the sidebar selection. The selection state itself lives in
@@ -119,6 +120,11 @@ final class AppNavigation: ObservableObject {
 
     func requestOverview() {
         overviewRequestID &+= 1
+        activateApp()
+    }
+
+    func requestCLIUpdate() {
+        cliUpdateRequestID &+= 1
         activateApp()
     }
 

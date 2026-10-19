@@ -6,6 +6,7 @@ struct ServiceDetailView: View {
     @EnvironmentObject var containerManager: ContainerizationWrapper
     @EnvironmentObject var statsStore: ContainerStatsStore
     @EnvironmentObject var releaseChecker: ContainerReleaseChecker
+    @EnvironmentObject var appNavigation: AppNavigation
     @State private var selectedTab = 0
     @State private var isRemovingRegistryCredentials = false
     @State private var showingRemoveRegistryCredentialsConfirmation = false
@@ -98,6 +99,8 @@ struct ServiceDetailView: View {
                                     .foregroundColor(.accentColor)
                                 Text("A newer version is available.")
                                     .font(.caption)
+                                Button("Update Now…") { appNavigation.requestCLIUpdate() }
+                                    .controlSize(.small)
                                 Link(
                                     "Download",
                                     destination: releaseChecker.latestReleaseURL ?? ContainerReleaseChecker.releasesPageURL

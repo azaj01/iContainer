@@ -117,6 +117,18 @@ iContainer is a macOS SwiftUI app that manages Apple Container workloads through
   `configuration.networks[].network` and `mounts[].type.volume.name`) so
   the wrapper can answer `containers(onNetwork:)` / `containers(usingVolume:)`
   without extra CLI calls.
+- `iContainer/ContainerCLIUpdater.swift`: `@MainActor ObservableObject` that
+  updates Apple's `container` CLI in place — `preparePlan()` (latest
+  release + signed pkg asset via `signedPackageAsset`, install method via
+  `detectInstallMethod`: pkg receipt / `/usr/local` vs Homebrew), then
+  `run(plan:…)`: streamed download → `spctl -a -t install` + `pkgutil
+  --check-signature` with the signer team ID pinned to `UPBK2H6LZM`
+  (`isTrustedPackage`) → `system stop` → `osascript "do shell script
+  \"installer -pkg … -target /\" with administrator privileges"` (system
+  password prompt) → `system start` → optional restart of previously
+  running containers. Homebrew path: `brew upgrade container`. Phases and
+  a log are published for `ContainerCLIUpdateSheet`; entry points via
+  `AppNavigation.requestCLIUpdate()`.
 - `iContainer/ContainerStatsStore.swift`: standalone `ObservableObject`
   holding rolling per-container resource history (CPU/memory/network),
   kept off the wrapper so frequent stats mutations don't re-render the

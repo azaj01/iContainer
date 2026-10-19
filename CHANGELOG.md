@@ -7,6 +7,19 @@ The format follows Keep a Changelog, and versions use semantic versioning:
 
 ## [Unreleased]
 
+### Added
+- **Update the Apple container CLI from the app.** The "newer version
+  available" banner (dashboard, Service page, alert) gains *Update Now…*:
+  iContainer downloads the signed installer package from the official
+  GitHub release with a progress bar, verifies it is signed by *Developer
+  ID Installer: Apple Inc. - Containerization* and notarized (`spctl` +
+  pinned team ID — a step Apple's own `update-container.sh` skips), stops
+  the container service, runs `installer` through the macOS administrator
+  prompt (the app never sees your password), starts the service again and
+  optionally restarts the containers that were running. Homebrew installs
+  are upgraded with `brew upgrade container` instead. Every step is logged
+  in the sheet; if anything fails midway the service is started again.
+
 ## [2.4.0] - 2026-09-18
 
 ### Added

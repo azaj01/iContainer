@@ -65,6 +65,7 @@ struct ContentView: View {
     @EnvironmentObject var dockerManager: DockerWrapper
     @Environment(\.openWindow) private var openWindow
     @State private var showingDockerImportSheet = false
+    @State private var showingCLIUpdateSheet = false
     @State private var createDockerContainerID: String?
     @State private var createDockerTranslation: DockerTranslation?
     @State private var createDockerImageStrategy: DockerImageStrategy = .importFromDocker
@@ -217,6 +218,7 @@ struct ContentView: View {
             "Container update available",
             isPresented: $releaseChecker.shouldPresentUpdateAlert
         ) {
+            Button("Update Now…") { showingCLIUpdateSheet = true }
             Button("Download") {
                 let url = releaseChecker.latestReleaseURL ?? ContainerReleaseChecker.releasesPageURL
                 NSWorkspace.shared.open(url)
@@ -225,7 +227,7 @@ struct ContentView: View {
         } message: {
             let latest = releaseChecker.latestVersion ?? "?"
             let installed = releaseChecker.installedVersion ?? "?"
-            Text("A newer version of the Apple container service is available.\nInstalled v\(installed) · Latest v\(latest)")
+            Text("A newer version of the Apple container CLI is available.\nInstalled v\(installed) · Latest v\(latest)\n\nUpdate Now downloads the signed installer and runs it through the macOS administrator prompt.")
         }
         .alert(
             "iContainer update available",
@@ -291,6 +293,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingDockerImportSheet) {
             DockerImportSheet(onClose: { showingDockerImportSheet = false })
+        }
+        .sheet(isPresented: $showingCLIUpdateSheet) {
+            ContainerCLIUpdateSheet(onClose: { showingCLIUpdateSheet = false })
+        }
+        .onReceive(appNavigation.$cliUpdateRequestID.dropFirst()) { _ in
+            showingCLIUpdateSheet = true
         }
         .sheet(isPresented: $showingCreateNetworkSheet) {
             CreateNetworkSheet(

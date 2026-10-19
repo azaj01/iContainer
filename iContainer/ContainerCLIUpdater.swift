@@ -1,0 +1,300 @@
+import Foundation
+import AppKit
+import Combine
+import Logging
+
+/// Updates Apple's `container` CLI in place.
+///
+/// Mirrors what Apple's own `/usr/local/bin/update-container.sh` does —
+/// download the signed installer package from the GitHub release, stop the
+/// service, run `installer`, start the service — with two things the script
+/// doesn't do: the package is verified (`spctl` + the Apple Containerization
+/// team ID) **before** anything privileged runs, and progress / errors are
+/// surfaced step by step. The only privileged step is `installer -pkg … -target /`,
+/// executed through macOS's own administrator prompt (`do shell script … with
+/// administrator privileges`): the app never sees the password.
+///
+/// Homebrew installs (`/opt/homebrew/bin/container`) are upgraded with
+/// `brew upgrade container` instead, which needs no privileges.
+@MainActor
+final class ContainerCLIUpdater: ObservableObject {
+    enum InstallMethod: Equatable {
+        case package
+        case homebrew(brewPath: String)
+        case unknown
+
+        var label: String {
+            switch self {
+            case .package: return "Apple installer package"
+            case .homebrew: return "Homebrew"
+            case .unknown: return "unknown"
+            }
+        }
+    }
+
+    enum Phase: Equatable {
+        case idle
+        case downloading(fraction: Double?)
+        case verifying
+        case stoppingService
+        case installing
+        case startingService
+        case restartingContainers
+        case done(version: String)
+        case failed(String)
+
+        var isActive: Bool {
+            switch self {
+            case .idle, .done, .failed: return false
+            default: return true
+            }
+        }
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var log: [String] = []
+
+    /// Pinned signer of Apple's container packages (Developer ID Installer:
+    /// Apple Inc. - Containerization). Anything else is refused even if
+    /// notarized.
+    nonisolated static let expectedTeamID = "UPBK2H6LZM"
+
+    private let logger = Logger(label: "iContainer.cliUpdater")
+
+    // MARK: - Install method
+
+    nonisolated static func detectInstallMethod(cliPath: String?) -> InstallMethod {
+        let path = cliPath ?? SettingsManager.resolvedContainerCLIPath() ?? ""
+        let resolved = (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) ?? path
+        if path.hasPrefix("/opt/homebrew/") || resolved.contains("/Cellar/") || resolved.contains("/homebrew/") {
+            for brew in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"] where FileManager.default.isExecutableFile(atPath: brew) {
+                return .homebrew(brewPath: brew)
+            }
+            return .unknown
+        }
+        if path.hasPrefix("/usr/local/") || FileManager.default.fileExists(atPath: "/usr/local/bin/update-container.sh") {
+            return .package
+        }
+        return .unknown
+    }
+
+    // MARK: - Release asset selection (pure)
+
+    /// Picks the signed installer package from a GitHub release's `assets`
+    /// array, preferring the versioned name (same order as Apple's script).
+    nonisolated static func signedPackageAsset(in release: [String: Any]) -> (name: String, url: URL, size: Int64)? {
+        guard let assets = release["assets"] as? [[String: Any]] else { return nil }
+        let tag = (release["tag_name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferred = ["container-\(tag)-installer-signed.pkg", "container-installer-signed.pkg"]
+        for name in preferred {
+            if let asset = assets.first(where: { ($0["name"] as? String) == name }),
+               let urlString = asset["browser_download_url"] as? String, let url = URL(string: urlString) {
+                return (name, url, (asset["size"] as? NSNumber)?.int64Value ?? 0)
+            }
+        }
+        // Any signed pkg as a last resort.
+        if let asset = assets.first(where: { (($0["name"] as? String) ?? "").hasSuffix("-installer-signed.pkg") }),
+           let name = asset["name"] as? String,
+           let urlString = asset["browser_download_url"] as? String, let url = URL(string: urlString) {
+            return (name, url, (asset["size"] as? NSNumber)?.int64Value ?? 0)
+        }
+        return nil
+    }
+
+    /// Reads the signer's team ID out of `pkgutil --check-signature` output
+    /// (`Developer ID Installer: Apple Inc. - Containerization (UPBK2H6LZM)`).
+    nonisolated static func signerTeamID(fromPkgutilOutput output: String) -> String? {
+        for line in output.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("1. Developer ID Installer:") || trimmed.hasPrefix("Developer ID Installer:") else { continue }
+            if let open = trimmed.lastIndex(of: "("), let close = trimmed.lastIndex(of: ")"), open < close {
+                return String(trimmed[trimmed.index(after: open)..<close])
+            }
+        }
+        return nil
+    }
+
+    nonisolated static func isTrustedPackage(spctlExitStatus: Int32, pkgutilOutput: String) -> Bool {
+        spctlExitStatus == 0
+            && pkgutilOutput.contains("signed by a developer certificate issued by Apple")
+            && signerTeamID(fromPkgutilOutput: pkgutilOutput) == expectedTeamID
+    }
+
+    // MARK: - Update flow
+
+    struct Plan {
+        let version: String
+        let assetName: String
+        let assetURL: URL
+        let assetSize: Int64
+        let method: InstallMethod
+    }
+
+    /// Fetches the latest release and prepares the plan without side effects.
+    func preparePlan() async throws -> Plan {
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/apple/container/releases/latest")!)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tag = json["tag_name"] as? String else {
+            throw NSError(domain: "iContainer.cliUpdater", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not read the latest release from GitHub."])
+        }
+        let method = Self.detectInstallMethod(cliPath: SettingsManager.resolvedContainerCLIPath())
+        guard let asset = Self.signedPackageAsset(in: json) else {
+            throw NSError(domain: "iContainer.cliUpdater", code: 2, userInfo: [NSLocalizedDescriptionKey: "Release \(tag) has no signed installer package."])
+        }
+        return Plan(version: tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV")), assetName: asset.name, assetURL: asset.url, assetSize: asset.size, method: method)
+    }
+
+    /// Runs the whole update. `serviceManager` stops/starts the service;
+    /// `containerManager` restarts the containers that were running when
+    /// `restartContainers` is set. Never throws — the outcome is in `phase`.
+    func run(plan: Plan, serviceManager: ServiceManager, containerManager: ContainerizationWrapper, restartContainers: Bool) async {
+        guard !phase.isActive else { return }
+        log = []
+        let previouslyRunning = containerManager.containers.filter { $0.status == .running }.map(\.id)
+        do {
+            switch plan.method {
+            case .homebrew(let brewPath):
+                phase = .stoppingService
+                append("Stopping the container service…")
+                await serviceManager.stopService()
+                phase = .installing
+                append("Running brew upgrade container…")
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try CLIProcess.run(executable: brewPath, arguments: ["upgrade", "container"], environment: ["HOMEBREW_NO_AUTO_UPDATE": "1", "HOMEBREW_NO_ENV_HINTS": "1"])
+                }.value
+                append(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
+                guard result.status == 0 else { throw NSError(domain: "iContainer.cliUpdater", code: 10, userInfo: [NSLocalizedDescriptionKey: "brew upgrade failed (exit \(result.status))."]) }
+            case .package, .unknown:
+                let pkgURL = try await download(plan)
+                defer { try? FileManager.default.removeItem(at: pkgURL.deletingLastPathComponent()) }
+                try await verify(pkgURL)
+                phase = .stoppingService
+                append("Stopping the container service…")
+                await serviceManager.stopService()
+                phase = .installing
+                append("Installing \(plan.assetName) — macOS will ask for your administrator password.")
+                try await installWithAdminPrivileges(pkgURL)
+            }
+
+            phase = .startingService
+            append("Starting the container service…")
+            await serviceManager.startService()
+            await serviceManager.checkServiceStatus()
+
+            if restartContainers, !previouslyRunning.isEmpty {
+                phase = .restartingContainers
+                append("Restarting \(previouslyRunning.count) container\(previouslyRunning.count == 1 ? "" : "s")…")
+                await containerManager.refreshContainers()
+                for id in previouslyRunning {
+                    await containerManager.startContainer(containerId: id)
+                }
+            }
+
+            let installed = serviceManager.serviceDetails?.clientVersion ?? serviceManager.serviceDetails?.version ?? plan.version
+            append("Installed version: \(installed)")
+            phase = .done(version: installed)
+        } catch {
+            logger.error("CLI update failed: \(error)")
+            append("Error: \(error.localizedDescription)")
+            phase = .failed(error.localizedDescription)
+            // Best effort: never leave the service down because we failed midway.
+            if !serviceManager.isServiceRunning {
+                append("Restarting the container service…")
+                await serviceManager.startService()
+            }
+        }
+    }
+
+    func reset() {
+        guard !phase.isActive else { return }
+        phase = .idle
+        log = []
+    }
+
+    // MARK: - Steps
+
+    private func download(_ plan: Plan) async throws -> URL {
+        phase = .downloading(fraction: 0)
+        let sizeText = ByteCountFormatter.string(fromByteCount: plan.assetSize, countStyle: .file)
+        append("Downloading \(plan.assetName) (\(sizeText))…")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("icontainer-cli-update-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(plan.assetName)
+
+        let (bytes, response) = try await URLSession.shared.bytes(from: plan.assetURL)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw NSError(domain: "iContainer.cliUpdater", code: 3, userInfo: [NSLocalizedDescriptionKey: "Download failed (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))."])
+        }
+        let expected = response.expectedContentLength > 0 ? response.expectedContentLength : plan.assetSize
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: destination)
+        defer { try? handle.close() }
+        var buffer = Data(); buffer.reserveCapacity(1 << 20)
+        var received: Int64 = 0
+        var lastReported = 0.0
+        for try await byte in bytes {
+            buffer.append(byte)
+            if buffer.count >= 1 << 20 {
+                try handle.write(contentsOf: buffer); received += Int64(buffer.count); buffer.removeAll(keepingCapacity: true)
+                let fraction = expected > 0 ? Double(received) / Double(expected) : nil
+                if let fraction, fraction - lastReported >= 0.01 { lastReported = fraction; phase = .downloading(fraction: fraction) }
+            }
+        }
+        if !buffer.isEmpty { try handle.write(contentsOf: buffer); received += Int64(buffer.count) }
+        if expected > 0, received != expected {
+            throw NSError(domain: "iContainer.cliUpdater", code: 4, userInfo: [NSLocalizedDescriptionKey: "Download incomplete (\(received) of \(expected) bytes)."])
+        }
+        phase = .downloading(fraction: 1)
+        append("Downloaded \(ByteCountFormatter.string(fromByteCount: received, countStyle: .file)).")
+        return destination
+    }
+
+    private func verify(_ pkgURL: URL) async throws {
+        phase = .verifying
+        append("Verifying the package signature…")
+        let path = pkgURL.path
+        let (spctl, pkgutil) = try await Task.detached(priority: .userInitiated) { () -> (CLIProcess.Result, CLIProcess.Result) in
+            let a = try CLIProcess.run(executable: "/usr/sbin/spctl", arguments: ["-a", "-vv", "-t", "install", path])
+            let b = try CLIProcess.run(executable: "/usr/sbin/pkgutil", arguments: ["--check-signature", path])
+            return (a, b)
+        }.value
+        guard Self.isTrustedPackage(spctlExitStatus: spctl.status, pkgutilOutput: pkgutil.output) else {
+            let signer = Self.signerTeamID(fromPkgutilOutput: pkgutil.output) ?? "unknown signer"
+            throw NSError(domain: "iContainer.cliUpdater", code: 5, userInfo: [NSLocalizedDescriptionKey:
+                "The package is not the Apple-signed container installer (signer: \(signer); spctl exit \(spctl.status)). Nothing was installed."])
+        }
+        append("Signature OK: Developer ID Installer: Apple Inc. - Containerization (\(Self.expectedTeamID)), notarized.")
+    }
+
+    /// `installer -pkg <pkg> -target /` through the system administrator
+    /// prompt. The path is single-quoted for the shell and the whole command
+    /// is escaped for the AppleScript string literal.
+    private func installWithAdminPrivileges(_ pkgURL: URL) async throws {
+        let shellPath = "'" + pkgURL.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let shellCommand = "/usr/sbin/installer -pkg \(shellPath) -target /"
+        let appleScriptLiteral = shellCommand.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let script = "do shell script \"\(appleScriptLiteral)\" with administrator privileges"
+        let result = try await Task.detached(priority: .userInitiated) {
+            try CLIProcess.run(executable: "/usr/bin/osascript", arguments: ["-e", script])
+        }.value
+        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.status != 0 {
+            if output.contains("User canceled") || output.contains("-128") {
+                throw NSError(domain: "iContainer.cliUpdater", code: 6, userInfo: [NSLocalizedDescriptionKey: "Installation cancelled at the administrator prompt."])
+            }
+            throw NSError(domain: "iContainer.cliUpdater", code: 7, userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "installer failed (exit \(result.status))." : output])
+        }
+        if !output.isEmpty { append(output) }
+        append("Package installed.")
+    }
+
+    private func append(_ line: String) {
+        guard !line.isEmpty else { return }
+        log.append(line)
+        logger.info("\(line)")
+    }
+}
