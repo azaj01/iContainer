@@ -275,24 +275,44 @@ final class ContainerCLIUpdater: ObservableObject {
     }
 
     /// `installer -pkg <pkg> -target /` through the system administrator
-    /// prompt. The path is single-quoted for the shell and the whole command
-    /// is escaped for the AppleScript string literal.
+    /// prompt. The AppleScript runs **in-process** (`NSAppleScript`), so the
+    /// SecurityAgent dialog is attributed to iContainer — "iContainer wants
+    /// to make changes", with the app icon — instead of to a generic
+    /// `osascript`. The password is typed into macOS's own dialog and never
+    /// reaches the app. Runs on a background thread so the UI keeps
+    /// updating while `installer` works.
     private func installWithAdminPrivileges(_ pkgURL: URL) async throws {
         let shellPath = "'" + pkgURL.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let shellCommand = "/usr/sbin/installer -pkg \(shellPath) -target /"
         let appleScriptLiteral = shellCommand.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let script = "do shell script \"\(appleScriptLiteral)\" with administrator privileges"
-        let result = try await Task.detached(priority: .userInitiated) {
-            try CLIProcess.run(executable: "/usr/bin/osascript", arguments: ["-e", script])
-        }.value
-        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.status != 0 {
-            if output.contains("User canceled") || output.contains("-128") {
-                throw NSError(domain: "iContainer.cliUpdater", code: 6, userInfo: [NSLocalizedDescriptionKey: "Installation cancelled at the administrator prompt."])
+        let source = "do shell script \"\(appleScriptLiteral)\" with administrator privileges"
+
+        let output: String = try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                guard let script = NSAppleScript(source: source) else {
+                    continuation.resume(throwing: NSError(domain: "iContainer.cliUpdater", code: 9, userInfo: [NSLocalizedDescriptionKey: "Could not build the installer script."]))
+                    return
+                }
+                var errorInfo: NSDictionary?
+                let descriptor = script.executeAndReturnError(&errorInfo)
+                if let errorInfo {
+                    let number = (errorInfo[NSAppleScript.errorNumber] as? Int) ?? 0
+                    let message = (errorInfo[NSAppleScript.errorMessage] as? String) ?? "installer failed"
+                    if number == -128 {
+                        continuation.resume(throwing: NSError(domain: "iContainer.cliUpdater", code: 6, userInfo: [NSLocalizedDescriptionKey: "Installation cancelled at the administrator prompt."]))
+                    } else {
+                        continuation.resume(throwing: NSError(domain: "iContainer.cliUpdater", code: 7, userInfo: [NSLocalizedDescriptionKey: "\(message) (\(number))"]))
+                    }
+                    return
+                }
+                continuation.resume(returning: descriptor.stringValue ?? "")
             }
-            throw NSError(domain: "iContainer.cliUpdater", code: 7, userInfo: [NSLocalizedDescriptionKey: output.isEmpty ? "installer failed (exit \(result.status))." : output])
+            thread.name = "iContainer.cliUpdater.installer"
+            thread.qualityOfService = .userInitiated
+            thread.start()
         }
-        if !output.isEmpty { append(output) }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { append(trimmed) }
         append("Package installed.")
     }
 
